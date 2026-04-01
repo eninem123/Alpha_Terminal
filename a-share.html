@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>A股机构级策略终端</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root{
+      --bg:#0B0E11;
+      --panel:#121821;
+      --line:#1f2937;
+      --gain:#00ff88;
+      --loss:#ff3b3b;
+      --text:#d1d5db;
+      --muted:#9ca3af;
+    }
+
+    html,body{
+      background:var(--bg);
+      color:var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", Arial, sans-serif;
+    }
+
+    .glass-card{
+      background: linear-gradient(180deg, rgba(18,24,33,.92), rgba(16,22,30,.88));
+      border:1px solid rgba(148,163,184,.18);
+      box-shadow: 0 10px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.02);
+    }
+
+    .terminal-glow{
+      box-shadow: 0 0 0 1px rgba(0,255,136,.12), 0 0 20px rgba(0,255,136,.08);
+    }
+
+    .ticker-up{ color:var(--gain); }
+    .ticker-down{ color:var(--loss); }
+
+    @keyframes flicker {
+      0%   { text-shadow: 0 0 0 rgba(255,255,255,0); opacity:1; }
+      25%  { text-shadow: 0 0 8px currentColor; opacity:.85; }
+      50%  { text-shadow: 0 0 14px currentColor; opacity:1; }
+      100% { text-shadow: 0 0 0 rgba(255,255,255,0); opacity:1; }
+    }
+    .flicker{ animation: flicker .42s ease; }
+
+    .scanline::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      background: repeating-linear-gradient(
+        to bottom,
+        rgba(255,255,255,.02) 0px,
+        rgba(255,255,255,.02) 1px,
+        rgba(0,0,0,0) 2px,
+        rgba(0,0,0,0) 4px
+      );
+      mix-blend-mode: soft-light;
+    }
+
+    .profit-chart{
+      position:relative;
+      height:120px;
+      border-radius:12px;
+      overflow:hidden;
+      border:1px solid rgba(148,163,184,.18);
+      background:
+        linear-gradient(to bottom, rgba(0,255,136,.08), rgba(0,255,136,0)),
+        radial-gradient(ellipse at top, rgba(0,255,136,.12), transparent 60%),
+        #0f141b;
+    }
+    .profit-grid{
+      position:absolute; inset:0;
+      background:
+        linear-gradient(to right, rgba(148,163,184,.10) 1px, transparent 1px) 0 0/14.285% 100%,
+        linear-gradient(to bottom, rgba(148,163,184,.10) 1px, transparent 1px) 0 0/100% 25%;
+      opacity:.35;
+      pointer-events:none;
+    }
+    .profit-path{
+      position:absolute;
+      left:0; right:0; bottom:0;
+      height:100%;
+      transition: all .5s ease;
+      clip-path: polygon(0% 100%, 0% 78%, 14% 74%, 28% 69%, 42% 73%, 57% 62%, 71% 58%, 85% 46%, 100% var(--path-end,42%), 100% 100%);
+      background: linear-gradient(180deg, rgba(0,255,136,.45), rgba(0,255,136,.08) 70%, rgba(0,255,136,0));
+      border-top: 2px solid rgba(0,255,136,.95);
+      filter: drop-shadow(0 0 8px rgba(0,255,136,.55));
+    }
+
+    .blur-lock{
+      filter: blur(0px);
+      transition: filter .25s ease;
+    }
+    .blur-lock.locked{
+      filter: blur(10px);
+      pointer-events:none;
+      user-select:none;
+    }
+
+    .modal-backdrop{
+      background: rgba(0,0,0,.45);
+      backdrop-filter: blur(10px);
+    }
+
+    .pill{
+      border:1px solid rgba(148,163,184,.24);
+      background: rgba(15,20,27,.7);
+    }
+
+    .input-dark{
+      background:#0f141b;
+      border:1px solid rgba(148,163,184,.25);
+      color:#e5e7eb;
+    }
+    .input-dark:focus{
+      outline:none;
+      border-color: rgba(0,255,136,.55);
+      box-shadow: 0 0 0 3px rgba(0,255,136,.16);
+    }
+
+    .btn-primary{
+      background: linear-gradient(90deg, rgba(0,255,136,.9), rgba(0,220,120,.95));
+      color:#04110a;
+      font-weight:700;
+    }
+  </style>
+</head>
+<body class="min-h-screen">
+  <div class="max-w-md mx-auto min-h-screen relative">
+    <!-- Main Content -->
+    <main id="appMain" class="blur-lock relative scanline px-4 pb-8 pt-4">
+      <header class="glass-card terminal-glow rounded-2xl p-4 mb-4">
+        <div class="text-[10px] tracking-[.2em] text-amber-300/90">仅限内部使用 - 二级数据流</div>
+        <h1 class="text-lg font-bold mt-2 text-white">A股机构级策略终端</h1>
+        <p class="text-xs text-slate-400 mt-1">资金效率 / 策略保护</p>
+      </header>
+
+      <section class="glass-card rounded-2xl p-4 mb-4">
+        <div class="grid grid-cols-1 gap-3">
+          <div>
+            <label class="text-xs text-slate-400">股票代码</label>
+            <input id="codeInput" type="text" maxlength="6" placeholder="如: 600519 / 000001"
+                   class="input-dark mt-1 w-full rounded-xl px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="text-xs text-slate-400">投资金额（本金）</label>
+            <input id="principalInput" type="number" min="0" step="1000" placeholder="例如 100000"
+                   class="input-dark mt-1 w-full rounded-xl px-3 py-2 text-sm" />
+          </div>
+          <button id="queryBtn" class="btn-primary rounded-xl px-4 py-2.5 text-sm active:scale-[.99] transition">
+            运行机构分析
+          </button>
+        </div>
+        <div class="mt-3 text-[11px] text-slate-500">
+          剩余免费次数：<span id="triesLeft" class="text-slate-300">2</span>
+        </div>
+      </section>
+
+      <section class="grid grid-cols-3 gap-2 mb-4">
+        <div class="glass-card rounded-xl p-3">
+          <div class="text-[10px] text-slate-400">波动率指数</div>
+          <div id="volatility" class="text-sm font-semibold mt-1 text-white">--</div>
+        </div>
+        <div class="glass-card rounded-xl p-3">
+          <div class="text-[10px] text-slate-400">机构净流入</div>
+          <div id="netFlow" class="text-sm font-semibold mt-1 text-white">--</div>
+        </div>
+        <div class="glass-card rounded-xl p-3">
+          <div class="text-[10px] text-slate-400">OTC杠杆倍率</div>
+          <div id="levRatio" class="text-sm font-semibold mt-1 text-white">10x</div>
+        </div>
+      </section>
+
+      <section class="glass-card rounded-2xl p-4 mb-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-xs text-slate-400">实时行情</div>
+            <div id="stockCodeShow" class="text-sm text-slate-300 mt-0.5">--</div>
+          </div>
+          <div class="text-right">
+            <div id="price" class="text-2xl font-bold text-white">--</div>
+            <div id="changePct" class="text-xs">--</div>
+          </div>
+        </div>
+
+        <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
+          <div class="pill rounded-lg px-2 py-2">
+            机构名义本金
+            <div id="notional" class="text-sm text-white font-semibold mt-1">--</div>
+          </div>
+          <div class="pill rounded-lg px-2 py-2">
+            资金效率
+            <div id="efficiency" class="text-sm text-white font-semibold mt-1">--</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="glass-card rounded-2xl p-4">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-sm text-slate-300">杠杆收益曲线（上涨1% -> +10%）</div>
+          <div id="pnlLabel" class="text-sm font-semibold text-white">盈亏：--</div>
+        </div>
+        <div class="profit-chart">
+          <div class="profit-grid"></div>
+          <div id="profitPath" class="profit-path" style="--path-end: 42%;"></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Lock Modal -->
+    <div id="lockModal" class="hidden fixed inset-0 z-50 modal-backdrop flex items-center justify-center px-4">
+      <div class="w-full max-w-sm glass-card rounded-2xl p-5 border border-slate-500/30">
+        <div class="text-xs tracking-[.14em] text-amber-300/90">访问控制</div>
+        <h2 class="text-lg font-bold text-white mt-2">机构权限已锁定</h2>
+        <p class="text-sm text-slate-300 mt-2 leading-relaxed">
+          当前波动率提示高收益机会。
+          请联系您的高级顾问，解锁无限实时数据与OTC执行方案。
+        </p>
+
+        <div class="mt-4 p-3 rounded-xl bg-[#0f141b] border border-slate-600/30">
+          <div class="text-xs text-slate-400">高级顾问微信</div>
+          <div id="wechatId" class="text-base text-white font-semibold mt-1">XLN31689</div>
+          <button id="copyWxBtn" class="mt-2 w-full rounded-lg btn-primary py-2 text-sm">复制微信号</button>
+        </div>
+
+        <div class="mt-3 p-3 rounded-xl bg-[#0f141b] border border-slate-600/30">
+          <div class="text-xs text-slate-400 mb-2">二维码</div>
+          <div class="w-24 h-24 mx-auto rounded bg-slate-800 border border-slate-600 grid place-items-center text-[10px] text-slate-400">
+            二维码
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ====== Config ======
+    const MAX_FREE_TRIES = 2;
+    const STORAGE_KEY = "_u_limit";
+    const LEVERAGE = 10;
+
+    // ====== State (obfuscated key names required) ======
+    let _u_limit = Number(localStorage.getItem(STORAGE_KEY) || 0);
+    let _s_data = {
+      code: "",
+      basePrice: 0,
+      currentPrice: 0,
+      timer: null,
+      principal: 0
+    };
+
+    // ====== Elements ======
+    const appMain = document.getElementById("appMain");
+    const lockModal = document.getElementById("lockModal");
+    const triesLeft = document.getElementById("triesLeft");
+
+    const codeInput = document.getElementById("codeInput");
+    const principalInput = document.getElementById("principalInput");
+    const queryBtn = document.getElementById("queryBtn");
+
+    const stockCodeShow = document.getElementById("stockCodeShow");
+    const priceEl = document.getElementById("price");
+    const changePctEl = document.getElementById("changePct");
+
+    const volatilityEl = document.getElementById("volatility");
+    const netFlowEl = document.getElementById("netFlow");
+    const levRatioEl = document.getElementById("levRatio");
+
+    const notionalEl = document.getElementById("notional");
+    const efficiencyEl = document.getElementById("efficiency");
+    const pnlLabelEl = document.getElementById("pnlLabel");
+    const profitPathEl = document.getElementById("profitPath");
+
+    const copyWxBtn = document.getElementById("copyWxBtn");
+    const wechatIdEl = document.getElementById("wechatId");
+
+    function updateTriesLeftUI() {
+      const left = Math.max(0, MAX_FREE_TRIES - _u_limit);
+      triesLeft.textContent = String(left);
+    }
+
+    function formatNum(v, digits = 2) {
+      return Number(v).toLocaleString("zh-CN", {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits
+      });
+    }
+
+    function getBasePriceByCode(code) {
+      if (code === "600519") return 1700 + Math.random() * 80;
+      if (code === "000001") return 10 + Math.random() * 2;
+      return 20 + Math.random() * 200;
+    }
+
+    function mockMetaByCode(code) {
+      const vol = (14 + Math.random() * 22).toFixed(2) + "%";
+      const flow = (Math.random() > 0.5 ? "+" : "-") + (8 + Math.random() * 32).toFixed(2) + "M";
+      const ratio = "10x";
+      return { vol, flow, ratio };
+    }
+
+    // Professional API simulation with live fluctuation engine
+    function fetchStockData(code) {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          const base = getBasePriceByCode(code);
+          resolve({
+            code,
+            basePrice: base,
+            currentPrice: base,
+            ts: Date.now()
+          });
+        }, 420 + Math.random() * 480);
+      });
+    }
+
+    function stopLiveTimer() {
+      if (_s_data.timer) {
+        clearInterval(_s_data.timer);
+        _s_data.timer = null;
+      }
+    }
+
+    function applyPriceUI(prev, next, base) {
+      const pct = ((next - base) / base) * 100;
+      const isUp = next >= prev;
+
+      priceEl.textContent = formatNum(next, 2);
+      changePctEl.textContent = (pct >= 0 ? "+" : "") + pct.toFixed(3) + "%";
+      changePctEl.className = "text-xs " + (pct >= 0 ? "ticker-up" : "ticker-down");
+
+      priceEl.classList.remove("flicker", "ticker-up", "ticker-down");
+      priceEl.classList.add(isUp ? "ticker-up" : "ticker-down");
+      // Restart flicker animation
+      void priceEl.offsetWidth;
+      priceEl.classList.add("flicker");
+
+      // leverage PnL: stock +1% => +10%
+      const leveragedPct = pct * LEVERAGE;
+      const pnl = _s_data.principal * (leveragedPct / 100);
+      const sign = leveragedPct >= 0 ? "+" : "";
+      pnlLabelEl.textContent = `盈亏：${sign}${formatNum(leveragedPct, 2)}%  (${sign}${formatNum(pnl, 2)})`;
+      pnlLabelEl.className = "text-sm font-semibold " + (leveragedPct >= 0 ? "ticker-up" : "ticker-down");
+
+      // chart path endpoint (smaller means higher)
+      // leveragedPct in [-20, 20] mapped to [82, 18]
+      const clamped = Math.max(-20, Math.min(20, leveragedPct));
+      const end = 82 - ((clamped + 20) / 40) * 64;
+      profitPathEl.style.setProperty("--path-end", end.toFixed(1) + "%");
+
+      efficiencyEl.textContent = `${sign}${formatNum(leveragedPct, 2)}% 预估`;
+      efficiencyEl.className = "text-sm font-semibold mt-1 " + (leveragedPct >= 0 ? "ticker-up" : "ticker-down");
+    }
+
+    function startLiveFeed() {
+      stopLiveTimer();
+      _s_data.timer = setInterval(() => {
+        const prev = _s_data.currentPrice;
+        // ±0.05% random fluctuation every 2 seconds
+        const move = (Math.random() - 0.5) * 0.001;
+        const next = Math.max(0.01, prev * (1 + move));
+        _s_data.currentPrice = next;
+        applyPriceUI(prev, next, _s_data.basePrice);
+      }, 2000);
+    }
+
+    function setLockedState() {
+      appMain.classList.add("locked");
+      lockModal.classList.remove("hidden");
+      stopLiveTimer();
+    }
+
+    function unlockState() {
+      appMain.classList.remove("locked");
+      lockModal.classList.add("hidden");
+    }
+
+    async function runQuery() {
+      const code = (codeInput.value || "").trim();
+      const principal = Number(principalInput.value || 0);
+
+      if (!/^\d{6}$/.test(code)) {
+        alert("请输入6位A股代码");
+        return;
+      }
+      if (!(principal > 0)) {
+        alert("请输入有效的投资金额");
+        return;
+      }
+
+      _u_limit += 1;
+      localStorage.setItem(STORAGE_KEY, String(_u_limit));
+      updateTriesLeftUI();
+
+      if (_u_limit > MAX_FREE_TRIES) {
+        setLockedState();
+        return;
+      }
+
+      unlockState();
+      queryBtn.disabled = true;
+      queryBtn.textContent = "实时行情加载中...";
+
+      try {
+        const data = await fetchStockData(code);
+        _s_data.code = data.code;
+        _s_data.basePrice = data.basePrice;
+        _s_data.currentPrice = data.currentPrice;
+        _s_data.principal = principal;
+
+        stockCodeShow.textContent = `SSE/SZSE ${code}`;
+        notionalEl.textContent = formatNum(principal * LEVERAGE, 2);
+
+        const meta = mockMetaByCode(code);
+        volatilityEl.textContent = meta.vol;
+        netFlowEl.textContent = meta.flow;
+        netFlowEl.className = "text-sm font-semibold mt-1 " + (meta.flow.startsWith("+") ? "ticker-up" : "ticker-down");
+        levRatioEl.textContent = meta.ratio;
+
+        applyPriceUI(data.basePrice, data.currentPrice, data.basePrice);
+        startLiveFeed();
+      } catch (e) {
+        alert("数据引擎暂时繁忙，请稍后再试");
+      } finally {
+        queryBtn.disabled = false;
+        queryBtn.textContent = "运行机构分析";
+      }
+    }
+
+    function init() {
+      updateTriesLeftUI();
+
+      if (_u_limit > MAX_FREE_TRIES) {
+        setLockedState();
+      }
+
+      queryBtn.addEventListener("click", runQuery);
+
+      copyWxBtn.addEventListener("click", async () => {
+        const txt = wechatIdEl.textContent.trim();
+        try {
+          await navigator.clipboard.writeText(txt);
+          copyWxBtn.textContent = "已复制";
+          setTimeout(() => (copyWxBtn.textContent = "复制微信号"), 1200);
+        } catch {
+          // fallback
+          const input = document.createElement("input");
+          input.value = txt;
+          document.body.appendChild(input);
+          input.select();
+          document.execCommand("copy");
+          document.body.removeChild(input);
+          copyWxBtn.textContent = "已复制";
+          setTimeout(() => (copyWxBtn.textContent = "复制微信号"), 1200);
+        }
+      });
+    }
+
+    init();
+  </script>
+</body>
+</html>
