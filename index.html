@@ -159,6 +159,7 @@
         <div class="text-[10px] tracking-[.2em] text-amber-300/90">内部数据视图</div>
         <h1 class="text-lg font-bold mt-2 text-white">数据分析终端</h1>
         <p class="text-xs text-slate-400 mt-1">多维指标 / 可视化</p>
+        <p id="marketStatusLine" class="text-[11px] mt-2 leading-snug text-slate-500"></p>
       </header>
 
       <section class="glass-card rounded-2xl p-4 mb-4">
@@ -264,19 +265,50 @@
     </div>
   </div>
 
+  <!-- 股票代码等错误提示（微信内 alert 不稳定，用页面弹层） -->
+  <div
+    id="codeErrorModal"
+    class="hidden fixed inset-0 z-[70] modal-backdrop flex items-center justify-center px-4"
+    role="alertdialog"
+    aria-modal="true"
+    aria-labelledby="codeErrorTitle"
+    aria-describedby="codeErrorMsg"
+  >
+    <div class="w-full max-w-sm glass-card rounded-2xl p-5 border border-red-500/30 shadow-2xl">
+      <h2 id="codeErrorTitle" class="text-lg font-bold text-red-400">股票代码错误</h2>
+      <p id="codeErrorMsg" class="text-sm text-slate-300 mt-3 leading-relaxed"></p>
+      <button
+        type="button"
+        id="codeErrorOk"
+        class="mt-5 w-full rounded-xl py-2.5 text-sm font-semibold bg-slate-700 text-white active:scale-[.99] transition hover:bg-slate-600"
+      >
+        知道了
+      </button>
+    </div>
+  </div>
+
   <script>
     (function () {
       var gate = document.getElementById("complianceGate");
       var btn = document.getElementById("complianceBtn");
       var main = document.getElementById("appMain");
 
-      function activateApp() {
-        gate.classList.add("hidden");
-        main.classList.remove("pointer-events-none", "opacity-40");
+      function loadCore() {
         var s = document.createElement("script");
         s.src = "core.js";
         s.async = true;
         document.body.appendChild(s);
+      }
+
+      function activateApp() {
+        gate.classList.add("hidden");
+        main.classList.remove("pointer-events-none", "opacity-40");
+        var u = document.createElement("script");
+        u.src = "unlock-secret.js";
+        u.async = false;
+        u.onload = loadCore;
+        u.onerror = loadCore;
+        document.body.appendChild(u);
       }
 
       var coreLoaded = false;
