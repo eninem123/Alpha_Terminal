@@ -1,0 +1,26 @@
+{
+  "agent:main:lightclawbot:direct:100007082184": {
+    "updatedAt": 1775777020822,
+    "deliveryContext": {
+      "channel": "lightclawbot",
+      "to": "user:100007082184",
+      "accountId": "default"
+    },
+    "lastChannel": "lightclawbot",
+    "lastTo": "user:100007082184",
+    "lastAccountId": "default",
+    "sessionId": "68fab271-0fd4-4392-9633-41473fb867eb"
+  },
+  "agent:main:main": {
+    "updatedAt": 1775777021005,
+    "deliveryContext": {
+      "channel": "lightclawbot",
+      "to": "user:100007082184",
+      "accountId": "default"
+    },
+    "lastChannel": "lightclawbot",
+    "lastTo": "user:100007082184",
+    "lastAccountId": "default",
+    "sessionId": "913764a1-37fa-4543-94c2-ff75ab1e4e4d"
+  }
+}
