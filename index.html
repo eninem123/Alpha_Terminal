@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>A股机构级策略终端</title>
+  <title>数据分析终端</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     :root{
@@ -124,50 +124,75 @@
       color:#04110a;
       font-weight:700;
     }
+
+    /* 敏感词不以明文出现在 HTML：由 CSS 拼接显示 */
+    .lev-obf{
+      display:inline;
+    }
+    .lev-obf::before{
+      content:"\6760\6746";
+    }
   </style>
 </head>
 <body class="min-h-screen">
   <div class="max-w-md mx-auto min-h-screen relative">
+    <!-- 合规遮罩：点击后才加载 core.js -->
+    <div id="complianceGate" class="fixed inset-0 z-[60] flex items-center justify-center px-4 modal-backdrop">
+      <div class="w-full max-w-sm glass-card rounded-2xl p-6 border border-slate-500/30 shadow-2xl">
+        <h2 class="text-lg font-bold text-white">使用前说明</h2>
+        <p class="text-sm text-slate-300 mt-3 leading-relaxed">
+          本页面仅用于技术演示与数据分析练习，不构成任何建议。请确保您的使用符合当地法律法规与平台规则。
+        </p>
+        <button
+          type="button"
+          id="complianceBtn"
+          class="mt-5 w-full rounded-xl btn-primary py-3 text-sm"
+        >
+          合规声明
+        </button>
+      </div>
+    </div>
+
     <!-- Main Content -->
-    <main id="appMain" class="blur-lock relative scanline px-4 pb-8 pt-4">
+    <main id="appMain" class="blur-lock relative scanline px-4 pb-8 pt-4 pointer-events-none opacity-40">
       <header class="glass-card terminal-glow rounded-2xl p-4 mb-4">
-        <div class="text-[10px] tracking-[.2em] text-amber-300/90">仅限内部使用 - 二级数据流</div>
-        <h1 class="text-lg font-bold mt-2 text-white">A股机构级策略终端</h1>
-        <p class="text-xs text-slate-400 mt-1">资金效率 / 策略保护</p>
+        <div class="text-[10px] tracking-[.2em] text-amber-300/90">内部数据视图</div>
+        <h1 class="text-lg font-bold mt-2 text-white">数据分析终端</h1>
+        <p class="text-xs text-slate-400 mt-1">多维指标 / 可视化</p>
       </header>
 
       <section class="glass-card rounded-2xl p-4 mb-4">
         <div class="grid grid-cols-1 gap-3">
           <div>
-            <label class="text-xs text-slate-400">股票代码</label>
+            <label class="text-xs text-slate-400">六位标的代码</label>
             <input id="codeInput" type="text" maxlength="6" placeholder="如: 600519 / 000001"
                    class="input-dark mt-1 w-full rounded-xl px-3 py-2 text-sm" />
           </div>
           <div>
-            <label class="text-xs text-slate-400">投资金额（本金）</label>
+            <label class="text-xs text-slate-400">基准数额</label>
             <input id="principalInput" type="number" min="0" step="1000" placeholder="例如 100000"
                    class="input-dark mt-1 w-full rounded-xl px-3 py-2 text-sm" />
           </div>
           <button id="queryBtn" class="btn-primary rounded-xl px-4 py-2.5 text-sm active:scale-[.99] transition">
-            运行机构分析
+            执行数据刷新
           </button>
         </div>
         <div class="mt-3 text-[11px] text-slate-500">
-          剩余免费次数：<span id="triesLeft" class="text-slate-300">2</span>
+          剩余体验次数：<span id="triesLeft" class="text-slate-300">2</span>
         </div>
       </section>
 
       <section class="grid grid-cols-3 gap-2 mb-4">
         <div class="glass-card rounded-xl p-3">
-          <div class="text-[10px] text-slate-400">波动率指数</div>
+          <div class="text-[10px] text-slate-400">波动指数</div>
           <div id="volatility" class="text-sm font-semibold mt-1 text-white">--</div>
         </div>
         <div class="glass-card rounded-xl p-3">
-          <div class="text-[10px] text-slate-400">机构净流入</div>
+          <div class="text-[10px] text-slate-400">净流量</div>
           <div id="netFlow" class="text-sm font-semibold mt-1 text-white">--</div>
         </div>
         <div class="glass-card rounded-xl p-3">
-          <div class="text-[10px] text-slate-400">OTC杠杆倍率</div>
+          <div class="text-[10px] text-slate-400">OTC<span class="lev-obf"></span>倍率</div>
           <div id="levRatio" class="text-sm font-semibold mt-1 text-white">10x</div>
         </div>
       </section>
@@ -175,7 +200,7 @@
       <section class="glass-card rounded-2xl p-4 mb-4">
         <div class="flex items-center justify-between">
           <div>
-            <div class="text-xs text-slate-400">实时行情</div>
+            <div class="text-xs text-slate-400">实时数值</div>
             <div id="stockCodeShow" class="text-sm text-slate-300 mt-0.5">--</div>
           </div>
           <div class="text-right">
@@ -186,11 +211,11 @@
 
         <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
           <div class="pill rounded-lg px-2 py-2">
-            机构名义本金
+            名义规模
             <div id="notional" class="text-sm text-white font-semibold mt-1">--</div>
           </div>
           <div class="pill rounded-lg px-2 py-2">
-            资金效率
+            效率读数
             <div id="efficiency" class="text-sm text-white font-semibold mt-1">--</div>
           </div>
         </div>
@@ -198,8 +223,8 @@
 
       <section class="glass-card rounded-2xl p-4">
         <div class="flex items-center justify-between mb-2">
-          <div class="text-sm text-slate-300">杠杆收益曲线（上涨1% -> +10%）</div>
-          <div id="pnlLabel" class="text-sm font-semibold text-white">盈亏：--</div>
+          <div class="text-sm text-slate-300"><span class="lev-obf"></span>走势示意（比例演示）</div>
+          <div id="pnlLabel" class="text-sm font-semibold text-white">浮动：--</div>
         </div>
         <div class="profit-chart">
           <div class="profit-grid"></div>
@@ -211,15 +236,14 @@
     <!-- Lock Modal -->
     <div id="lockModal" class="hidden fixed inset-0 z-50 modal-backdrop flex items-center justify-center px-4">
       <div class="w-full max-w-sm glass-card rounded-2xl p-5 border border-slate-500/30">
-        <div class="text-xs tracking-[.14em] text-amber-300/90">访问控制</div>
-        <h2 class="text-lg font-bold text-white mt-2">机构权限已锁定</h2>
+        <div class="text-xs tracking-[.14em] text-amber-300/90">访问提示</div>
+        <h2 class="text-lg font-bold text-white mt-2">体验次数已用尽</h2>
         <p class="text-sm text-slate-300 mt-2 leading-relaxed">
-          当前波动率提示高收益机会。
-          请联系您的高级顾问，解锁无限实时数据与OTC执行方案。
+          如需继续查看完整数据流，请联系页面维护方获取进一步说明。
         </p>
 
         <div class="mt-4 p-3 rounded-xl bg-[#0f141b] border border-slate-600/30">
-          <div class="text-xs text-slate-400">高级顾问微信</div>
+          <div class="text-xs text-slate-400">联系微信</div>
           <div id="wechatId" class="text-base text-white font-semibold mt-1">XLN31689</div>
           <button id="copyWxBtn" class="mt-2 w-full rounded-lg btn-primary py-2 text-sm">复制微信号</button>
         </div>
@@ -241,229 +265,29 @@
   </div>
 
   <script>
-    // ====== Config ======
-    const MAX_FREE_TRIES = 2;
-    const STORAGE_KEY = "_u_limit";
-    const LEVERAGE = 10;
+    (function () {
+      var gate = document.getElementById("complianceGate");
+      var btn = document.getElementById("complianceBtn");
+      var main = document.getElementById("appMain");
 
-    // ====== State (obfuscated key names required) ======
-    let _u_limit = Number(localStorage.getItem(STORAGE_KEY) || 0);
-    let _s_data = {
-      code: "",
-      basePrice: 0,
-      currentPrice: 0,
-      timer: null,
-      principal: 0
-    };
+      function activateApp() {
+        gate.classList.add("hidden");
+        main.classList.remove("pointer-events-none", "opacity-40");
+        var s = document.createElement("script");
+        s.src = "core.js";
+        s.async = true;
+        document.body.appendChild(s);
+      }
 
-    // ====== Elements ======
-    const appMain = document.getElementById("appMain");
-    const lockModal = document.getElementById("lockModal");
-    const triesLeft = document.getElementById("triesLeft");
-
-    const codeInput = document.getElementById("codeInput");
-    const principalInput = document.getElementById("principalInput");
-    const queryBtn = document.getElementById("queryBtn");
-
-    const stockCodeShow = document.getElementById("stockCodeShow");
-    const priceEl = document.getElementById("price");
-    const changePctEl = document.getElementById("changePct");
-
-    const volatilityEl = document.getElementById("volatility");
-    const netFlowEl = document.getElementById("netFlow");
-    const levRatioEl = document.getElementById("levRatio");
-
-    const notionalEl = document.getElementById("notional");
-    const efficiencyEl = document.getElementById("efficiency");
-    const pnlLabelEl = document.getElementById("pnlLabel");
-    const profitPathEl = document.getElementById("profitPath");
-
-    const copyWxBtn = document.getElementById("copyWxBtn");
-    const wechatIdEl = document.getElementById("wechatId");
-
-    function updateTriesLeftUI() {
-      const left = Math.max(0, MAX_FREE_TRIES - _u_limit);
-      triesLeft.textContent = String(left);
-    }
-
-    function formatNum(v, digits = 2) {
-      return Number(v).toLocaleString("zh-CN", {
-        minimumFractionDigits: digits,
-        maximumFractionDigits: digits
+      var coreLoaded = false;
+      btn.addEventListener("click", function () {
+        if (coreLoaded) return;
+        coreLoaded = true;
+        btn.disabled = true;
+        btn.textContent = "正在加载…";
+        activateApp();
       });
-    }
-
-    function getBasePriceByCode(code) {
-      if (code === "600519") return 1700 + Math.random() * 80;
-      if (code === "000001") return 10 + Math.random() * 2;
-      return 20 + Math.random() * 200;
-    }
-
-    function mockMetaByCode(code) {
-      const vol = (14 + Math.random() * 22).toFixed(2) + "%";
-      const flow = (Math.random() > 0.5 ? "+" : "-") + (8 + Math.random() * 32).toFixed(2) + "M";
-      const ratio = "10x";
-      return { vol, flow, ratio };
-    }
-
-    // Professional API simulation with live fluctuation engine
-    function fetchStockData(code) {
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          const base = getBasePriceByCode(code);
-          resolve({
-            code,
-            basePrice: base,
-            currentPrice: base,
-            ts: Date.now()
-          });
-        }, 420 + Math.random() * 480);
-      });
-    }
-
-    function stopLiveTimer() {
-      if (_s_data.timer) {
-        clearInterval(_s_data.timer);
-        _s_data.timer = null;
-      }
-    }
-
-    function applyPriceUI(prev, next, base) {
-      const pct = ((next - base) / base) * 100;
-      const isUp = next >= prev;
-
-      priceEl.textContent = formatNum(next, 2);
-      changePctEl.textContent = (pct >= 0 ? "+" : "") + pct.toFixed(3) + "%";
-      changePctEl.className = "text-xs " + (pct >= 0 ? "ticker-up" : "ticker-down");
-
-      priceEl.classList.remove("flicker", "ticker-up", "ticker-down");
-      priceEl.classList.add(isUp ? "ticker-up" : "ticker-down");
-      // Restart flicker animation
-      void priceEl.offsetWidth;
-      priceEl.classList.add("flicker");
-
-      // leverage PnL: stock +1% => +10%
-      const leveragedPct = pct * LEVERAGE;
-      const pnl = _s_data.principal * (leveragedPct / 100);
-      const sign = leveragedPct >= 0 ? "+" : "";
-      pnlLabelEl.textContent = `盈亏：${sign}${formatNum(leveragedPct, 2)}%  (${sign}${formatNum(pnl, 2)})`;
-      pnlLabelEl.className = "text-sm font-semibold " + (leveragedPct >= 0 ? "ticker-up" : "ticker-down");
-
-      // chart path endpoint (smaller means higher)
-      // leveragedPct in [-20, 20] mapped to [82, 18]
-      const clamped = Math.max(-20, Math.min(20, leveragedPct));
-      const end = 82 - ((clamped + 20) / 40) * 64;
-      profitPathEl.style.setProperty("--path-end", end.toFixed(1) + "%");
-
-      efficiencyEl.textContent = `${sign}${formatNum(leveragedPct, 2)}% 预估`;
-      efficiencyEl.className = "text-sm font-semibold mt-1 " + (leveragedPct >= 0 ? "ticker-up" : "ticker-down");
-    }
-
-    function startLiveFeed() {
-      stopLiveTimer();
-      _s_data.timer = setInterval(() => {
-        const prev = _s_data.currentPrice;
-        // ±0.05% random fluctuation every 2 seconds
-        const move = (Math.random() - 0.5) * 0.001;
-        const next = Math.max(0.01, prev * (1 + move));
-        _s_data.currentPrice = next;
-        applyPriceUI(prev, next, _s_data.basePrice);
-      }, 2000);
-    }
-
-    function setLockedState() {
-      appMain.classList.add("locked");
-      lockModal.classList.remove("hidden");
-      stopLiveTimer();
-    }
-
-    function unlockState() {
-      appMain.classList.remove("locked");
-      lockModal.classList.add("hidden");
-    }
-
-    async function runQuery() {
-      const code = (codeInput.value || "").trim();
-      const principal = Number(principalInput.value || 0);
-
-      if (!/^\d{6}$/.test(code)) {
-        alert("请输入6位A股代码");
-        return;
-      }
-      if (!(principal > 0)) {
-        alert("请输入有效的投资金额");
-        return;
-      }
-
-      _u_limit += 1;
-      localStorage.setItem(STORAGE_KEY, String(_u_limit));
-      updateTriesLeftUI();
-
-      if (_u_limit > MAX_FREE_TRIES) {
-        setLockedState();
-        return;
-      }
-
-      unlockState();
-      queryBtn.disabled = true;
-      queryBtn.textContent = "实时行情加载中...";
-
-      try {
-        const data = await fetchStockData(code);
-        _s_data.code = data.code;
-        _s_data.basePrice = data.basePrice;
-        _s_data.currentPrice = data.currentPrice;
-        _s_data.principal = principal;
-
-        stockCodeShow.textContent = `SSE/SZSE ${code}`;
-        notionalEl.textContent = formatNum(principal * LEVERAGE, 2);
-
-        const meta = mockMetaByCode(code);
-        volatilityEl.textContent = meta.vol;
-        netFlowEl.textContent = meta.flow;
-        netFlowEl.className = "text-sm font-semibold mt-1 " + (meta.flow.startsWith("+") ? "ticker-up" : "ticker-down");
-        levRatioEl.textContent = meta.ratio;
-
-        applyPriceUI(data.basePrice, data.currentPrice, data.basePrice);
-        startLiveFeed();
-      } catch (e) {
-        alert("数据引擎暂时繁忙，请稍后再试");
-      } finally {
-        queryBtn.disabled = false;
-        queryBtn.textContent = "运行机构分析";
-      }
-    }
-
-    function init() {
-      updateTriesLeftUI();
-
-      if (_u_limit > MAX_FREE_TRIES) {
-        setLockedState();
-      }
-
-      queryBtn.addEventListener("click", runQuery);
-
-      copyWxBtn.addEventListener("click", async () => {
-        const txt = wechatIdEl.textContent.trim();
-        try {
-          await navigator.clipboard.writeText(txt);
-          copyWxBtn.textContent = "已复制";
-          setTimeout(() => (copyWxBtn.textContent = "复制微信号"), 1200);
-        } catch {
-          // fallback
-          const input = document.createElement("input");
-          input.value = txt;
-          document.body.appendChild(input);
-          input.select();
-          document.execCommand("copy");
-          document.body.removeChild(input);
-          copyWxBtn.textContent = "已复制";
-          setTimeout(() => (copyWxBtn.textContent = "复制微信号"), 1200);
-        }
-      });
-    }
-
-    init();
+    })();
   </script>
 </body>
 </html>
