@@ -1,0 +1,1517 @@
+import http from "node:http";
+import { execFile, execFileSync } from "node:child_process";
+import crypto from "node:crypto";
+import { promises as fs, existsSync, readFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+function readEnvTrim(name) {
+  const v = process.env[name];
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function parseDotEnv(text) {
+  const out = {};
+  const lines = String(text || "").split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i].trim();
+    if (!line || line.startsWith("#")) continue;
+    if (line.startsWith("export ")) line = line.slice("export ".length).trim();
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    let val = line.slice(eq + 1).trim();
+    if (!key) continue;
+    if (
+      (val.startsWith('"') && val.endsWith('"')) ||
+      (val.startsWith("'") && val.endsWith("'"))
+    ) {
+      val = val.slice(1, -1);
+    }
+    out[key] = val;
+  }
+  return out;
+}
+
+function applyEnvIfMissing(envObj) {
+  const keys = Object.keys(envObj || {});
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const cur = process.env[k];
+    if (typeof cur === "string" && cur.trim()) continue;
+    const v = envObj[k];
+    if (typeof v === "string" && v.trim()) process.env[k] = v;
+  }
+}
+
+function loadDotEnvFromFile(filePath) {
+  if (!filePath) return;
+  try {
+    if (!existsSync(filePath)) return;
+    const text = readFileSync(filePath, "utf8");
+    const parsed = parseDotEnv(text);
+    applyEnvIfMissing(parsed);
+  } catch {}
+}
+
+const DEFAULT_ENV_FILE = process.platform === "win32" ? "" : "/root/.config/ima/.env";
+const ENV_FILE = readEnvTrim("IMA_ENV_FILE") || DEFAULT_ENV_FILE;
+loadDotEnvFromFile(ENV_FILE);
+applyWindowsRegistryEnvIfMissing([
+  "IMA_OPENAPI_CLIENTID",
+  "IMA_OPENAPI_APIKEY",
+  "IMA_OPENAPI_CLIENT_ID",
+  "IMA_OPENAPI_API_KEY",
+  "DEEPSEEK_API_KEY",
+  "DEEPSEEK_BASE_URL",
+  "DEEPSEEK_MODEL",
+  "TENCENT_OAI_API_KEY",
+  "TENCENT_OAI_BASE_URL",
+  "TENCENT_OAI_MODEL"
+]);
+
+const PORT = Number(process.env.PORT || 8787);
+const HOST =
+  readEnvTrim("HOST") ||
+  (process.env.NODE_ENV === "production"
+    ? "0.0.0.0"
+    : "::");
+
+const KB_QA_MAX = Math.max(0, Number(readEnvTrim("KB_QA_MAX") || 2));
+const KB_QA_WINDOW_MS = 24 * 60 * 60 * 1000;
+const _kbQaQuota = new Map();
+
+const VIP_SECRET = readEnvTrim("VIP_SECRET");
+const VIP_WINDOW_MINUTES = Math.max(1, Number(readEnvTrim("VIP_WINDOW_MINUTES") || 3));
+const VIP_ADMIN_TOKEN = readEnvTrim("VIP_ADMIN_TOKEN");
+const ADMIN_USER = readEnvTrim("ADMIN_USER");
+const ADMIN_PASS = readEnvTrim("ADMIN_PASS");
+const ADMIN_SESSION_SECRET = readEnvTrim("ADMIN_SESSION_SECRET") || VIP_SECRET;
+const ADMIN_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const _adminLoginGuard = new Map();
+const AGENT_PROMPT = (() => {
+  try {
+    const p = path.join(__dirname, "agent.md");
+    if (!existsSync(p)) return "";
+    return String(readFileSync(p, "utf8") || "").trim();
+  } catch {
+    return "";
+  }
+})();
+
+function execFileText(cmd, args) {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { windowsHide: true }, (err, stdout) => {
+      if (err) reject(err);
+      else resolve(String(stdout || ""));
+    });
+  });
+}
+
+function readWindowsRegistryEnvVarSync(name) {
+  if (process.platform !== "win32") return "";
+  const roots = [
+    "HKCU\\Environment",
+    "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment"
+  ];
+  for (let i = 0; i < roots.length; i++) {
+    try {
+      const out = String(
+        execFileSync("reg.exe", ["query", roots[i], "/v", name], {
+          windowsHide: true,
+          stdio: ["ignore", "pipe", "ignore"]
+        }) || ""
+      );
+      const lines = out.split(/\r?\n/);
+      for (let j = 0; j < lines.length; j++) {
+        const line = lines[j];
+        const m = line.match(new RegExp("^\\s*" + name + "\\s+REG_\\w+\\s+(.*)$", "i"));
+        if (m && m[1]) {
+          const v = String(m[1]).trim();
+          if (v) return v;
+        }
+      }
+    } catch {}
+  }
+  return "";
+}
+
+function applyWindowsRegistryEnvIfMissing(keys) {
+  if (process.platform !== "win32") return;
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const cur = readEnvTrim(k);
+    if (cur) continue;
+    const v = readWindowsRegistryEnvVarSync(k);
+    if (v) process.env[k] = v;
+  }
+}
+
+const _winRegCache = new Map();
+async function readWindowsRegistryEnvVar(name) {
+  if (process.platform !== "win32") return "";
+  if (_winRegCache.has(name)) return _winRegCache.get(name);
+
+  const roots = [
+    "HKCU\\Environment",
+    "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment"
+  ];
+  for (let i = 0; i < roots.length; i++) {
+    try {
+      const out = await execFileText("reg.exe", ["query", roots[i], "/v", name]);
+      const lines = out.split(/\r?\n/);
+      for (let j = 0; j < lines.length; j++) {
+        const line = lines[j];
+        const m = line.match(new RegExp("^\\s*" + name + "\\s+REG_\\w+\\s+(.*)$", "i"));
+        if (m && m[1]) {
+          const v = String(m[1]).trim();
+          if (v) {
+            _winRegCache.set(name, v);
+            return v;
+          }
+        }
+      }
+    } catch {}
+  }
+  _winRegCache.set(name, "");
+  return "";
+}
+
+async function readTextFileIfExists(filePath) {
+  try {
+    const buf = await fs.readFile(filePath);
+    const s = buf.toString("utf8").trim();
+    return s;
+  } catch {
+    return "";
+  }
+}
+
+function imaConfigDir() {
+  return path.join(os.homedir(), ".config", "ima");
+}
+
+function json(res, statusCode, payload) {
+  const body = JSON.stringify(payload);
+  res.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store"
+  });
+  res.end(body);
+}
+
+function parseCookies(req) {
+  const h = req && req.headers ? req.headers : {};
+  const raw = String(h.cookie || "");
+  const out = {};
+  if (!raw) return out;
+  const parts = raw.split(";");
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    const eq = p.indexOf("=");
+    if (eq <= 0) continue;
+    const k = p.slice(0, eq).trim();
+    const v = p.slice(eq + 1).trim();
+    if (!k) continue;
+    out[k] = decodeURIComponent(v);
+  }
+  return out;
+}
+
+function setCookie(res, name, value, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const parts = [];
+  parts.push(name + "=" + encodeURIComponent(String(value || "")));
+  parts.push("Path=" + (opts.path || "/"));
+  if (opts.httpOnly !== false) parts.push("HttpOnly");
+  parts.push("SameSite=" + (opts.sameSite || "Lax"));
+  if (opts.secure) parts.push("Secure");
+  if (typeof opts.maxAge === "number") parts.push("Max-Age=" + String(Math.floor(opts.maxAge)));
+  if (opts.expires instanceof Date) parts.push("Expires=" + opts.expires.toUTCString());
+
+  const prev = res.getHeader("Set-Cookie");
+  if (!prev) res.setHeader("Set-Cookie", parts.join("; "));
+  else if (Array.isArray(prev)) res.setHeader("Set-Cookie", prev.concat(parts.join("; ")));
+  else res.setHeader("Set-Cookie", [String(prev), parts.join("; ")]);
+}
+
+function signAdminSession(payload) {
+  if (!ADMIN_SESSION_SECRET) return "";
+  const sig = crypto
+    .createHmac("sha256", ADMIN_SESSION_SECRET)
+    .update(payload)
+    .digest("hex");
+  return sig;
+}
+
+function createAdminSessionToken() {
+  const exp = Date.now() + ADMIN_SESSION_TTL_MS;
+  const nonce = crypto.randomBytes(16).toString("hex");
+  const payload = String(exp) + "." + nonce;
+  const sig = signAdminSession(payload);
+  if (!sig) return "";
+  return payload + "." + sig;
+}
+
+function verifyAdminSessionToken(token) {
+  const t = String(token || "").trim();
+  if (!t) return false;
+  const parts = t.split(".");
+  if (parts.length !== 3) return false;
+  const exp = Number(parts[0]);
+  if (!Number.isFinite(exp) || exp <= Date.now()) return false;
+  const payload = parts[0] + "." + parts[1];
+  const sig = parts[2];
+  const expected = signAdminSession(payload);
+  if (!expected) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(sig, "hex"), Buffer.from(expected, "hex"));
+  } catch {
+    return false;
+  }
+}
+
+function isAdminAuthed(req) {
+  if (!ADMIN_USER || !ADMIN_PASS || !ADMIN_SESSION_SECRET) return false;
+  const ck = parseCookies(req);
+  return verifyAdminSessionToken(ck.admin_session);
+}
+
+function shouldSecureCookie(req) {
+  const h = req && req.headers ? req.headers : {};
+  const proto = String(h["x-forwarded-proto"] || "").trim().toLowerCase();
+  return proto === "https";
+}
+
+function md2HexFromBytes(inputBytes) {
+  const S = [
+    41, 46, 67, 201, 162, 216, 124, 1, 61, 54, 84, 161, 236, 240, 6, 19, 98, 167, 5,
+    243, 192, 199, 115, 140, 152, 147, 43, 217, 188, 76, 130, 202, 30, 155, 87, 60, 253,
+    212, 224, 22, 103, 66, 111, 24, 138, 23, 229, 18, 190, 78, 196, 214, 218, 158, 222,
+    73, 160, 251, 245, 142, 187, 47, 238, 122, 169, 104, 121, 145, 21, 178, 7, 63, 148,
+    194, 16, 137, 11, 34, 95, 33, 128, 127, 93, 154, 90, 144, 50, 39, 53, 62, 204, 231,
+    191, 247, 151, 3, 255, 25, 48, 179, 72, 165, 181, 209, 215, 94, 146, 42, 172, 86,
+    170, 198, 79, 184, 56, 210, 150, 164, 125, 182, 118, 252, 107, 226, 156, 116, 4, 241,
+    69, 157, 112, 89, 100, 113, 135, 32, 134, 91, 207, 101, 230, 45, 168, 2, 27, 96, 37,
+    173, 174, 176, 185, 246, 28, 70, 97, 105, 52, 64, 126, 15, 85, 71, 163, 35, 221, 81,
+    175, 58, 195, 92, 249, 206, 186, 197, 234, 38, 44, 83, 13, 110, 133, 40, 132, 9, 211,
+    223, 205, 244, 65, 129, 77, 82, 106, 220, 55, 200, 108, 193, 171, 250, 36, 225, 123,
+    8, 12, 189, 177, 74, 120, 136, 149, 139, 227, 99, 232, 109, 233, 203, 213, 254, 59,
+    0, 29, 57, 242, 239, 183, 14, 102, 88, 208, 228, 166, 119, 114, 248, 235, 117, 75,
+    10, 49, 68, 80, 180, 143, 237, 31, 26, 219, 153, 141, 51, 159, 17, 131, 20
+  ];
+  const bytes = Array.from(inputBytes || []);
+  const padLen = 16 - (bytes.length % 16);
+  for (let i = 0; i < padLen; i++) bytes.push(padLen);
+
+  const C = new Array(16).fill(0);
+  let L = 0;
+  for (let i = 0; i < bytes.length; i += 16) {
+    for (let j = 0; j < 16; j++) {
+      const c = bytes[i + j];
+      C[j] = C[j] ^ S[c ^ L];
+      L = C[j];
+    }
+  }
+  for (let i = 0; i < 16; i++) bytes.push(C[i]);
+  const X = new Array(48).fill(0);
+  for (let i = 0; i < bytes.length; i += 16) {
+    for (let j = 0; j < 16; j++) {
+      X[16 + j] = bytes[i + j];
+      X[32 + j] = X[16 + j] ^ X[j];
+    }
+    let t = 0;
+    for (let j = 0; j < 18; j++) {
+      for (let k = 0; k < 48; k++) {
+        X[k] = X[k] ^ S[t];
+        t = X[k];
+      }
+      t = (t + j) & 0xff;
+    }
+  }
+  const digest = X.slice(0, 16);
+  return digest.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function md2Hex(text) {
+  const buf = Buffer.from(String(text || ""), "utf8");
+  return md2HexFromBytes(buf);
+}
+
+function beijingParts(dateObj) {
+  const d = dateObj instanceof Date ? dateObj : new Date();
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(d);
+  const out = {};
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (p && p.type && p.value) out[p.type] = p.value;
+  }
+  const y = out.year || "0000";
+  const m = out.month || "00";
+  const day = out.day || "00";
+  const hh = out.hour || "00";
+  const mm = out.minute || "00";
+  return { ymd: y + m + day, hm: hh + mm };
+}
+
+function vipKeyAtMinuteOffset(minuteOffset) {
+  if (!VIP_SECRET) return "";
+  const d = new Date(Date.now() - minuteOffset * 60 * 1000);
+  const p = beijingParts(d);
+  return md2Hex(VIP_SECRET + "|" + p.ymd + p.hm);
+}
+
+function isVipKeyValid(key) {
+  const k = String(key || "").trim();
+  if (!k || !VIP_SECRET) return false;
+  for (let i = 0; i < VIP_WINDOW_MINUTES; i++) {
+    if (k === vipKeyAtMinuteOffset(i)) return true;
+  }
+  return false;
+}
+
+function isLocalRequest(req) {
+  const h = req && req.headers ? req.headers : {};
+  const xfwd = String(h["x-forwarded-for"] || "").split(",")[0].trim();
+  const xreal = String(h["x-real-ip"] || "").trim();
+  const ra = req?.socket?.remoteAddress ? String(req.socket.remoteAddress).trim() : "";
+  const ip = xfwd || xreal || ra;
+  if (!ip) return false;
+  if (ip === "127.0.0.1" || ip === "::1") return true;
+  if (ip.startsWith("::ffff:127.0.0.1")) return true;
+  return false;
+}
+
+function trimToChars(s, maxChars) {
+  const str = String(s || "");
+  if (str.length <= maxChars) return str;
+  return str.slice(0, maxChars);
+}
+
+function ensureProfessionalSummary(answer) {
+  const text = String(answer || "").trim();
+  if (!text) return "专业总结：";
+  const idx = text.indexOf("专业总结");
+  if (idx >= 0) {
+    const head = text.slice(0, idx).trimEnd();
+    const tail = text.slice(idx);
+    const parts = tail.split(/\r?\n/);
+    const firstLine = parts[0] || "专业总结：";
+    const rest = parts.slice(1).join("\n").trim();
+    const cleanedRest = trimToChars(rest, 500);
+    return (head ? head + "\n\n" : "") + firstLine.trim() + "\n" + cleanedRest;
+  }
+  const summary = trimToChars(text, 500);
+  return text + "\n\n专业总结：\n" + summary;
+}
+
+function getClientKey(req) {
+  const h = req && req.headers ? req.headers : {};
+  const xfwd = String(h["x-forwarded-for"] || "").split(",")[0].trim();
+  const xreal = String(h["x-real-ip"] || "").trim();
+  const ra = req?.socket?.remoteAddress ? String(req.socket.remoteAddress).trim() : "";
+  const ip = xfwd || xreal || ra || "unknown";
+  const ua = String(h["user-agent"] || "").slice(0, 120);
+  return ip + "|" + ua;
+}
+
+function quotaStateFor(req) {
+  const key = getClientKey(req);
+  const now = Date.now();
+  const cur = _kbQaQuota.get(key);
+  if (!cur || now - cur.startedAt > KB_QA_WINDOW_MS) {
+    const next = { used: 0, startedAt: now };
+    _kbQaQuota.set(key, next);
+    return { key, state: next };
+  }
+  return { key, state: cur };
+}
+
+async function readJsonBody(req) {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  const raw = Buffer.concat(chunks).toString("utf8").trim();
+  if (!raw) return {};
+  return JSON.parse(raw);
+}
+
+function readFirstEnv(keys) {
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const v = readEnvTrim(k);
+    if (v) return { value: v, source: { type: "env", key: k } };
+  }
+  return { value: "", source: null };
+}
+
+async function getImaCredentialsOrError() {
+  const clientEnv = readFirstEnv(["IMA_OPENAPI_CLIENTID", "IMA_OPENAPI_CLIENT_ID"]);
+  const apiKeyEnv = readFirstEnv(["IMA_OPENAPI_APIKEY", "IMA_OPENAPI_API_KEY"]);
+  let clientId = clientEnv.value;
+  let apiKey = apiKeyEnv.value;
+  let clientIdSource = clientEnv.source;
+  let apiKeySource = apiKeyEnv.source;
+
+  if (!clientId) {
+    for (const k of ["IMA_OPENAPI_CLIENTID", "IMA_OPENAPI_CLIENT_ID"]) {
+      const v = await readWindowsRegistryEnvVar(k);
+      if (v) {
+        clientId = v;
+        clientIdSource = { type: "registry", key: k };
+        break;
+      }
+    }
+  }
+  if (!apiKey) {
+    for (const k of ["IMA_OPENAPI_APIKEY", "IMA_OPENAPI_API_KEY"]) {
+      const v = await readWindowsRegistryEnvVar(k);
+      if (v) {
+        apiKey = v;
+        apiKeySource = { type: "registry", key: k };
+        break;
+      }
+    }
+  }
+
+  const dir = imaConfigDir();
+  if (!clientId) {
+    const p = path.join(dir, "client_id");
+    clientId = await readTextFileIfExists(p);
+    if (clientId) clientIdSource = { type: "file", path: p };
+  }
+  if (!apiKey) {
+    const p = path.join(dir, "api_key");
+    apiKey = await readTextFileIfExists(p);
+    if (apiKey) apiKeySource = { type: "file", path: p };
+  }
+
+  if (!clientId || !apiKey) {
+    const missing = [];
+    if (!clientId) missing.push("ClientID");
+    if (!apiKey) missing.push("APIKey");
+    return {
+      ok: false,
+      error:
+        "缺少 IMA 凭证（" +
+        missing.join("、") +
+        "）。请设置环境变量 IMA_OPENAPI_CLIENTID + IMA_OPENAPI_APIKEY（或 IMA_OPENAPI_CLIENT_ID + IMA_OPENAPI_API_KEY），或在 ~/.config/ima 下放置 client_id 与 api_key 文件。"
+    };
+  }
+  return { ok: true, clientId, apiKey, sources: { clientId: clientIdSource, apiKey: apiKeySource } };
+}
+
+function getFixedKnowledgeBaseOrError() {
+  const name = readEnvTrim("IMA_FIXED_KB_NAME") || "理财书籍";
+  const idDirect = readEnvTrim("IMA_FIXED_KB_ID");
+  const shareUrl = readEnvTrim("IMA_FIXED_KB_SHARE_URL");
+  return { ok: true, name, idDirect: idDirect || null, shareUrl: shareUrl || null };
+}
+
+const KB_ID_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+let _kbIdCache = {
+  name: "",
+  id: "",
+  source: null,
+  cachedAt: 0
+};
+
+function invalidateKbIdCache() {
+  _kbIdCache = { name: "", id: "", source: null, cachedAt: 0 };
+}
+
+async function resolveKnowledgeBaseIdOrError(forceRefresh) {
+  const cfg = getFixedKnowledgeBaseOrError();
+  if (!cfg.ok) return cfg;
+
+  if (cfg.idDirect) {
+    return {
+      ok: true,
+      id: cfg.idDirect,
+      name: cfg.name,
+      source: { type: "env", key: "IMA_FIXED_KB_ID" }
+    };
+  }
+
+  const now = Date.now();
+  if (
+    !forceRefresh &&
+    _kbIdCache.id &&
+    _kbIdCache.name === cfg.name &&
+    now - _kbIdCache.cachedAt < KB_ID_CACHE_TTL_MS
+  ) {
+    return {
+      ok: true,
+      id: _kbIdCache.id,
+      name: cfg.name,
+      source: { type: "cache", from: _kbIdCache.source }
+    };
+  }
+
+  const resp = await imaApi("openapi/wiki/v1/search_knowledge_base", {
+    query: cfg.name,
+    cursor: "",
+    limit: 50
+  });
+  const list = firstArrayByPaths(resp, [
+    "info_list",
+    "data.info_list",
+    "result.info_list",
+    "data.result.info_list"
+  ]);
+
+  const exact = [];
+  for (let i = 0; i < list.length; i++) {
+    const it = list[i];
+    const nm = String(it?.name || "").trim();
+    if (nm === cfg.name) exact.push(it);
+  }
+
+  const pick = exact.length ? exact : list.length === 1 ? list : [];
+  if (!pick.length) {
+    return {
+      ok: false,
+      error:
+        "无法通过知识库名称解析到唯一知识库 ID。请在环境变量中显式设置 IMA_FIXED_KB_ID（OpenAPI 的 knowledge_base_id），或确保名称检索结果唯一。"
+    };
+  }
+
+  if (pick.length > 1) {
+    return {
+      ok: false,
+      error:
+        "知识库名称检索到多个候选项，无法自动确认。请设置 IMA_FIXED_KB_ID（OpenAPI 的 knowledge_base_id）以避免误选。"
+    };
+  }
+
+  const id = String(
+    pick[0]?.id ?? pick[0]?.knowledge_base_id ?? pick[0]?.knowledgeBaseId ?? pick[0]?.kb_id ?? ""
+  ).trim();
+  if (!id) {
+    return {
+      ok: false,
+      error:
+        "知识库名称检索返回缺少 id 字段，请改用 IMA_FIXED_KB_ID 显式指定。"
+    };
+  }
+
+  _kbIdCache = { name: cfg.name, id, source: { type: "search_knowledge_base" }, cachedAt: now };
+  return { ok: true, id, name: cfg.name, source: { type: "search_knowledge_base" } };
+}
+
+async function imaApi(pathname, bodyObj) {
+  const env = await getImaCredentialsOrError();
+  if (!env.ok) {
+    const err = new Error(env.error);
+    err.code = "MISSING_IMA_CREDENTIALS";
+    throw err;
+  }
+  const url = `https://ima.qq.com/${pathname.replace(/^\//, "")}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "ima-openapi-clientid": env.clientId,
+      "ima-openapi-apikey": env.apiKey
+    },
+    body: JSON.stringify(bodyObj || {})
+  });
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
+  if (!res.ok) {
+    const err = new Error("IMA_API_ERROR");
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  if (data && typeof data === "object") {
+    const retCode =
+      typeof data.ret_code === "number"
+        ? data.ret_code
+        : typeof data.retcode === "number"
+          ? data.retcode
+          : typeof data.err_code === "number"
+            ? data.err_code
+            : typeof data.errcode === "number"
+              ? data.errcode
+              : typeof data.code === "number"
+                ? data.code
+                : null;
+    if (retCode !== null && retCode !== 0) {
+      const msg =
+        String(
+          data.errmsg ??
+            data.err_msg ??
+            data.message ??
+            data.msg ??
+            "IMA_API_RET_CODE_NOT_ZERO"
+        ) || "IMA_API_RET_CODE_NOT_ZERO";
+      const err = new Error(msg);
+      err.code = "IMA_API_RET_CODE_NOT_ZERO";
+      err.ret_code = retCode;
+      err.data = data;
+      throw err;
+    }
+  }
+  return data;
+}
+
+function getOpenAiCompatConfig() {
+  const tencentKey = readEnvTrim("TENCENT_OAI_API_KEY");
+  if (tencentKey) {
+    return {
+      ok: true,
+      provider: "tencent",
+      apiKey: tencentKey,
+      baseUrl: readEnvTrim("TENCENT_OAI_BASE_URL") || "https://api.hunyuan.tencent.com/v1",
+      model: readEnvTrim("TENCENT_OAI_MODEL") || "hunyuan-lite"
+    };
+  }
+
+  const deepseekKey = readEnvTrim("DEEPSEEK_API_KEY");
+  if (deepseekKey) {
+    return {
+      ok: true,
+      provider: "deepseek",
+      apiKey: deepseekKey,
+      baseUrl: readEnvTrim("DEEPSEEK_BASE_URL") || "https://api.deepseek.com/v1",
+      model: readEnvTrim("DEEPSEEK_MODEL") || "deepseek-chat"
+    };
+  }
+
+  return {
+    ok: false,
+    error:
+      "未配置模型：请设置 TENCENT_OAI_API_KEY（混元 OpenAI 兼容）或 DEEPSEEK_API_KEY（DeepSeek OpenAI 兼容）。"
+  };
+}
+
+async function openAiChatComplete(messages) {
+  const cfg = getOpenAiCompatConfig();
+  if (!cfg.ok) {
+    const err = new Error(cfg.error);
+    err.code = "MISSING_LLM_CONFIG";
+    throw err;
+  }
+  const url = `${cfg.baseUrl.replace(/\/$/, "")}/chat/completions`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${cfg.apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: cfg.model,
+      messages,
+      temperature: 0.2,
+      stream: false
+    })
+  });
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
+  if (!res.ok) {
+    const err = new Error("LLM_API_ERROR");
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  const msg = data?.choices?.[0]?.message?.content;
+  return typeof msg === "string" ? msg : "";
+}
+
+const QUOTE_URL = "https://qt.gtimg.cn/q=";
+
+function decodeTencentQuoteBody(buffer) {
+  const labels = ["gbk", "gb18030"];
+  for (let i = 0; i < labels.length; i++) {
+    try {
+      return new TextDecoder(labels[i]).decode(buffer);
+    } catch {}
+  }
+  try {
+    return new TextDecoder("utf-8").decode(buffer);
+  } catch {}
+  try {
+    return Buffer.from(buffer).toString("latin1");
+  } catch {
+    return "";
+  }
+}
+
+function codeToSymbol(code) {
+  const c = String(code || "").trim();
+  if (!/^\d{6}$/.test(c)) return "";
+  const p2 = c.slice(0, 2);
+  const p3 = c.slice(0, 3);
+  if (p2 === "60" || p2 === "68" || p2 === "69") return "sh" + c;
+  if (p2 === "00" || p2 === "30") return "sz" + c;
+  if (p3 === "430" || p3 === "830" || p3 === "870" || p3 === "880" || p3 === "920") return "bj" + c;
+  return "";
+}
+
+function extractFirstStockCode(text) {
+  const s = String(text || "");
+  const m = s.match(/(^|[^\d])(\d{6})(?!\d)/);
+  return m ? m[2] : "";
+}
+
+async function fetchQuoteSnapshot(code) {
+  const symbol = codeToSymbol(code);
+  if (!symbol) return null;
+  const res = await fetch(QUOTE_URL + encodeURIComponent(symbol), { cache: "no-store" });
+  if (!res.ok) return null;
+  const buf = await res.arrayBuffer();
+  const text = decodeTencentQuoteBody(buf);
+  if (!text || !text.trim()) return null;
+  if (/v_pv_none_match/i.test(text)) return null;
+  const m = text.match(/v_[a-z0-9]+="([^"]*)"/i);
+  if (!m) return null;
+  const parts = String(m[1] || "").split("~");
+  if (parts.length < 5) return null;
+  const currentPrice = parseFloat(parts[3]);
+  let basePrice = parseFloat(parts[4]);
+  if (!Number.isFinite(currentPrice) || currentPrice <= 0) return null;
+  if (!Number.isFinite(basePrice) || basePrice <= 0) basePrice = currentPrice;
+  const name = String(parts[1] || "").trim();
+  return { code, symbol, name, currentPrice, basePrice, ts: Date.now() };
+}
+
+function beijingNowString() {
+  const d = new Date();
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).formatToParts(d);
+  const out = {};
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (p && p.type && p.value) out[p.type] = p.value;
+  }
+  const y = out.year || "0000";
+  const m = out.month || "00";
+  const day = out.day || "00";
+  const hh = out.hour || "00";
+  const mm = out.minute || "00";
+  const ss = out.second || "00";
+  return `${y}-${m}-${day} ${hh}:${mm}:${ss}`;
+}
+
+function buildRagMessages(question, sources) {
+  const maxSources = 6;
+  const picked = Array.isArray(sources) ? sources.slice(0, maxSources) : [];
+  const context = picked
+    .map((x, idx) => {
+      const title = String(x?.title || "").trim();
+      const snippet = String(x?.highlight_content || "").trim();
+      return `来源${idx + 1}：${title}\n${snippet}`.trim();
+    })
+    .join("\n\n");
+
+  const hasSources = picked.length > 0;
+  const systemPrompt = hasSources
+    ? "你是一个回答金融问题的助手。知识库内容用于补充参考（约30%）；若问题中包含“北京时间/行情快照”，请以其为主（约70%）并在回答中写出当天日期。尽量引用来源标题作为依据。若来源信息不够完整，也要给出可执行的推断与下一步核对建议（用“建议”“可选关键词”等表达），不要使用“无法/失败/不能/不支持/无法提供/无法执行”等措辞。不要编造行情与日期。最后必须追加一段“专业总结”（500字以内）。"
+    : "你是一个回答金融问题的助手。本次回答不引用知识库来源；若问题中包含“北京时间/行情快照”，请以其为主并在回答中写出当天日期。请直接基于通用知识给出清晰、可执行的答复（可标注“通用参考”），不要声称引用了知识库来源，也不要使用“无法/失败/不能/不支持/无法提供/无法执行”等措辞。不要编造行情与日期。最后必须追加一段“专业总结”（500字以内）。";
+
+  return [
+    {
+      role: "system",
+      content: systemPrompt
+    },
+    {
+      role: "user",
+      content: `问题：${question}\n\n可用来源：\n${context || "（无）"}`
+    }
+  ];
+}
+
+function buildRagMessagesWithMode(question, sources, mode, isVip) {
+  const base = buildRagMessages(question, sources);
+  if (!Array.isArray(base) || !base.length) return base;
+  if (isVip && AGENT_PROMPT) {
+    base[0] = {
+      role: "system",
+      content: AGENT_PROMPT + "\n\n" + String(base[0].content || "")
+    };
+  }
+  if (mode !== "blur") return base;
+  const hasSources = Array.isArray(sources) && sources.length > 0;
+  base[0] = {
+    role: "system",
+    content:
+      (hasSources
+        ? "你是一个基于知识库检索结果回答问题的助手。现在处于试用限制的“模糊回答”模式：只给出高层概括，不给出细节步骤和精确数字；最多 5 条要点；不要扩展到来源之外。若信息不够完整，用“建议/可选关键词/下一步核对”等表达，不要使用“无法/失败/不能/不支持/无法提供/无法执行”等措辞。最后必须追加一段“专业总结”（500字以内）。"
+        : "你是一个助手。本次回答不引用知识库来源。现在处于试用限制的“模糊回答”模式：只给出高层概括，不给出细节步骤和精确数字；最多 5 条要点；可标注“通用参考”；不要使用“无法/失败/不能/不支持/无法提供/无法执行”等措辞。最后必须追加一段“专业总结”（500字以内）。")
+  };
+  return base;
+}
+
+function normalizeQueryText(s) {
+  return String(s || "")
+    .replace(/[\u0000-\u001f]+/g, " ")
+    .replace(/[，。！？、；：“”‘’（）()\[\]{}<>《》【】"'`~!@#$%^&*+=|\\/:;,.?]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildSearchQueries(question) {
+  const q0 = normalizeQueryText(question);
+  const queries = [];
+  if (q0) queries.push(q0);
+
+  const q1 = q0
+    .replace(/^(请问|麻烦|帮我|帮忙|能否)\s*/g, "")
+    .replace(/\s*(是什么|有哪些|有哪些内容|主要包含|主要包括|包含什么|怎么|如何)\s*$/g, "")
+    .trim();
+  if (q1 && q1 !== q0) queries.push(q1);
+
+  if (q0.length > 10) queries.push(q0.slice(0, 10));
+
+  const cnSeq = q0.match(/[\u4e00-\u9fa5]{2,}/g) || [];
+  for (let i = 0; i < cnSeq.length; i++) {
+    const seg = cnSeq[i];
+    if (seg && seg.length <= 10) queries.push(seg);
+    if (seg.length >= 4) {
+      queries.push(seg.slice(0, 4));
+      queries.push(seg.slice(-4));
+    }
+  }
+
+  const out = [];
+  const seen = new Set();
+  for (let i = 0; i < queries.length; i++) {
+    const v = queries[i];
+    if (!v) continue;
+    if (seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
+function getByPath(obj, pathStr) {
+  const parts = String(pathStr || "").split(".").filter(Boolean);
+  let cur = obj;
+  for (let i = 0; i < parts.length; i++) {
+    if (!cur || typeof cur !== "object") return undefined;
+    cur = cur[parts[i]];
+  }
+  return cur;
+}
+
+function firstArrayByPaths(obj, paths) {
+  for (let i = 0; i < paths.length; i++) {
+    const v = getByPath(obj, paths[i]);
+    if (Array.isArray(v)) return v;
+  }
+  return [];
+}
+
+async function searchKnowledgeMulti(knowledgeBaseId, question) {
+  const queries = buildSearchQueries(question);
+  const picked = [];
+  const seen = new Set();
+
+  for (let i = 0; i < queries.length; i++) {
+    const q = queries[i];
+    const search = await imaApi("openapi/wiki/v1/search_knowledge", {
+      query: q,
+      cursor: "",
+      knowledge_base_id: knowledgeBaseId
+    });
+    const list = firstArrayByPaths(search, [
+      "info_list",
+      "data.info_list",
+      "result.info_list",
+      "data.result.info_list"
+    ]);
+    for (let j = 0; j < list.length; j++) {
+      const it = list[j];
+      const id = String(it?.media_id || "").trim();
+      if (!id) continue;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      picked.push(it);
+      if (picked.length >= 8) break;
+    }
+    if (picked.length) break;
+  }
+
+  if (picked.length) return { sources: picked, mode: "search_knowledge", queries };
+
+  const listResp = await imaApi("openapi/wiki/v1/get_knowledge_list", {
+    cursor: "",
+    limit: 50,
+    knowledge_base_id: knowledgeBaseId
+  });
+  const kbList = firstArrayByPaths(listResp, [
+    "knowledge_list",
+    "data.knowledge_list",
+    "result.knowledge_list",
+    "data.result.knowledge_list"
+  ]);
+  const q = normalizeQueryText(question);
+  const filtered = [];
+  for (let i = 0; i < kbList.length; i++) {
+    const it = kbList[i];
+    const title = String(it?.title || "").trim();
+    if (!title) continue;
+    if (!q || title.includes(q)) filtered.push(it);
+    else if (q && title.includes(q.slice(0, 2))) filtered.push(it);
+  }
+  const fallback = (filtered.length ? filtered : kbList).slice(0, 8).map((x) => ({
+    media_id: x?.media_id,
+    title: x?.title,
+    parent_folder_id: x?.parent_folder_id,
+    highlight_content: ""
+  }));
+  return { sources: fallback, mode: "get_knowledge_list", queries };
+}
+
+function safePublicSource(x) {
+  return {
+    media_id: x?.media_id,
+    title: x?.title,
+    parent_folder_id: x?.parent_folder_id,
+    highlight_content: x?.highlight_content
+  };
+}
+
+async function handleApi(req, res, pathname) {
+  if (pathname === "/api/health") {
+    const llmCfg = getOpenAiCompatConfig();
+    const imaCfg = await getImaCredentialsOrError();
+    const kbCfg = getFixedKnowledgeBaseOrError();
+    const hasKbId = Boolean(kbCfg.ok && kbCfg.idDirect);
+    json(res, 200, {
+      ok: true,
+      ima: {
+        configured: imaCfg.ok,
+        sources: imaCfg.ok ? imaCfg.sources : null,
+        error: imaCfg.ok ? null : imaCfg.error
+      },
+      llm: { configured: llmCfg.ok, provider: llmCfg.ok ? llmCfg.provider : null },
+      vip: { configured: Boolean(VIP_SECRET), window_minutes: VIP_WINDOW_MINUTES, agent_loaded: Boolean(AGENT_PROMPT) },
+      admin: { enabled: Boolean(ADMIN_USER && ADMIN_PASS && ADMIN_SESSION_SECRET), authed: isAdminAuthed(req) },
+      kb: kbCfg.ok
+        ? {
+            fixed: true,
+            name: kbCfg.name,
+            id_configured: hasKbId,
+            id_cached: _kbIdCache.name === kbCfg.name ? _kbIdCache.id : null
+          }
+        : { fixed: false }
+    });
+    return true;
+  }
+
+  if (pathname === "/api/admin/status" && req.method === "POST") {
+    json(res, 200, {
+      enabled: Boolean(ADMIN_USER && ADMIN_PASS && ADMIN_SESSION_SECRET),
+      authed: isAdminAuthed(req)
+    });
+    return true;
+  }
+
+  if (pathname === "/api/admin/login" && req.method === "POST") {
+    const enabled = Boolean(ADMIN_USER && ADMIN_PASS && ADMIN_SESSION_SECRET);
+    if (!enabled) {
+      json(res, 404, { error: "未启用管理员登录。" });
+      return true;
+    }
+    const now = Date.now();
+    const key = getClientKey(req);
+    const guard = _adminLoginGuard.get(key) || { attempts: 0, lockUntil: 0 };
+    if (guard.lockUntil && now < guard.lockUntil) {
+      json(res, 429, { error: "尝试次数过多，请稍后再试。" });
+      return true;
+    }
+    const body = await readJsonBody(req);
+    const user = String(body?.user || "").trim();
+    const pass = String(body?.pass || "").trim();
+    if (user === ADMIN_USER && pass === ADMIN_PASS) {
+      const token = createAdminSessionToken();
+      if (!token) {
+        json(res, 500, { error: "服务端未配置会话密钥。" });
+        return true;
+      }
+      setCookie(res, "admin_session", token, {
+        httpOnly: true,
+        sameSite: "Lax",
+        secure: shouldSecureCookie(req),
+        maxAge: Math.floor(ADMIN_SESSION_TTL_MS / 1000)
+      });
+      _adminLoginGuard.set(key, { attempts: 0, lockUntil: 0 });
+      json(res, 200, { ok: true });
+      return true;
+    }
+    const nextAttempts = (guard.attempts || 0) + 1;
+    const next = { attempts: nextAttempts, lockUntil: 0 };
+    if (nextAttempts >= 5) next.lockUntil = now + 10 * 60 * 1000;
+    _adminLoginGuard.set(key, next);
+    json(res, 401, { error: "账号或密码错误。" });
+    return true;
+  }
+
+  if (pathname === "/api/admin/logout" && req.method === "POST") {
+    setCookie(res, "admin_session", "", {
+      httpOnly: true,
+      sameSite: "Lax",
+      secure: shouldSecureCookie(req),
+      maxAge: 0
+    });
+    json(res, 200, { ok: true });
+    return true;
+  }
+
+  if (pathname === "/api/vip/page" && req.method === "GET") {
+    try {
+      if (!VIP_SECRET) {
+        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Not Found");
+        return true;
+      }
+      const u = new URL(req.url || "/api/vip/page", "http://localhost");
+      const token = String(u.searchParams.get("token") || "").trim();
+      if (VIP_ADMIN_TOKEN && !isLocalRequest(req) && token !== VIP_ADMIN_TOKEN) {
+        res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Forbidden");
+        return true;
+      }
+      const key = vipKeyAtMinuteOffset(0);
+      const html =
+        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"/>" +
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>" +
+        "<title>VIP 密钥</title>" +
+        "<style>body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; background:#0b1220;color:#e5e7eb}" +
+        ".wrap{max-width:720px;margin:0 auto;padding:20px} .card{background:rgba(255,255,255,.06);border:1px solid rgba(148,163,184,.25);border-radius:16px;padding:16px}" +
+        ".k{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:14px;word-break:break-all;background:#0f141b;border:1px solid rgba(148,163,184,.25);border-radius:12px;padding:12px}" +
+        ".row{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px} button{cursor:pointer;border:0;border-radius:12px;padding:10px 14px;background:#d97706;color:#111827;font-weight:700}" +
+        ".muted{color:#94a3b8;font-size:12px;line-height:1.4;margin-top:10px}</style></head><body>" +
+        "<div class=\"wrap\"><div class=\"card\">" +
+        "<div style=\"letter-spacing:.14em;color:rgba(253,230,138,.95);font-size:12px\">ADMIN</div>" +
+        "<div style=\"font-size:18px;font-weight:800;margin-top:6px\">VIP 增强密钥</div>" +
+        "<div class=\"muted\">将密钥发送给用户，在问答弹窗的 “VIP 增强密钥” 中填写即可。</div>" +
+        "<div class=\"k\" id=\"k\">" +
+        key +
+        "</div>" +
+        "<div class=\"row\">" +
+        "<button id=\"copy\">复制密钥</button>" +
+        "<button id=\"refresh\" style=\"background:#334155;color:#e5e7eb\">刷新</button>" +
+        "</div>" +
+        "<div class=\"muted\">密钥有效期较短，请及时使用。</div>" +
+        "</div></div>" +
+        "<script>document.getElementById('refresh').addEventListener('click',()=>location.reload());" +
+        "document.getElementById('copy').addEventListener('click',async()=>{const t=document.getElementById('k').innerText.trim();" +
+        "try{await navigator.clipboard.writeText(t);document.getElementById('copy').innerText='已复制';setTimeout(()=>document.getElementById('copy').innerText='复制密钥',1200);}catch(e){alert('复制失败，请手动复制。')}});" +
+        "</script></body></html>";
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(html);
+    } catch (e) {
+      json(res, 500, { error: e?.message || "VIP_PAGE_ERROR" });
+    }
+    return true;
+  }
+
+  if (pathname === "/api/vip/verify" && req.method === "POST") {
+    try {
+      const body = await readJsonBody(req);
+      const key = String(body?.key || "").trim();
+      const ok = Boolean(key && isVipKeyValid(key));
+      json(res, 200, { ok });
+    } catch (e) {
+      json(res, 200, { ok: false });
+    }
+    return true;
+  }
+
+  if (pathname === "/api/vip/key" && req.method === "GET") {
+    try {
+      if (!VIP_SECRET) {
+        json(res, 404, { error: "VIP 未配置。" });
+        return true;
+      }
+      const u = new URL(req.url || "/api/vip/key", "http://localhost");
+      const token = String(u.searchParams.get("token") || "").trim();
+      if (VIP_ADMIN_TOKEN && !isLocalRequest(req) && token !== VIP_ADMIN_TOKEN) {
+        json(res, 403, { error: "无权限。" });
+        return true;
+      }
+      const key = vipKeyAtMinuteOffset(0);
+      const now = new Date();
+      const p = beijingParts(now);
+      const ms = now.getTime();
+      const expiresAt = ms - (ms % (60 * 1000)) + VIP_WINDOW_MINUTES * 60 * 1000;
+      json(res, 200, {
+        key,
+        hm: p.hm,
+        expires_at_ms: expiresAt,
+        window_minutes: VIP_WINDOW_MINUTES
+      });
+    } catch (e) {
+      json(res, 500, { error: e?.message || "VIP_KEY_ERROR" });
+    }
+    return true;
+  }
+
+  if (pathname === "/api/kb/sample" && req.method === "POST") {
+    try {
+      const kb = await resolveKnowledgeBaseIdOrError(false);
+      if (!kb.ok) {
+        json(res, 500, { error: kb.error });
+        return true;
+      }
+      const listResp = await imaApi("openapi/wiki/v1/get_knowledge_list", {
+        cursor: "",
+        limit: 50,
+        knowledge_base_id: kb.id
+      });
+      const kbList = firstArrayByPaths(listResp, [
+        "knowledge_list",
+        "data.knowledge_list",
+        "result.knowledge_list",
+        "data.result.knowledge_list"
+      ]);
+      json(res, 200, {
+        knowledge_base_id: kb.id,
+        count: kbList.length,
+        titles: kbList.slice(0, 20).map((x) => ({ media_id: x?.media_id, title: x?.title }))
+      });
+    } catch (e) {
+      json(res, 500, { error: e?.message || "API_ERROR" });
+    }
+    return true;
+  }
+
+  if (pathname === "/api/debug/ima" && req.method === "POST") {
+    try {
+      const kb = await resolveKnowledgeBaseIdOrError(false);
+      if (!kb.ok) {
+        json(res, 500, { error: kb.error });
+        return true;
+      }
+
+      const kbInfoResp = await imaApi("openapi/wiki/v1/get_knowledge_base", { ids: [kb.id] });
+      const infos =
+        (kbInfoResp && typeof kbInfoResp === "object" ? kbInfoResp.infos : null) ||
+        (kbInfoResp && typeof kbInfoResp === "object" ? kbInfoResp.data?.infos : null) ||
+        (kbInfoResp && typeof kbInfoResp === "object" ? kbInfoResp.result?.infos : null) ||
+        null;
+      const kbInfo = infos && typeof infos === "object" ? infos[kb.id] : null;
+
+      const listResp = await imaApi("openapi/wiki/v1/get_knowledge_list", {
+        cursor: "",
+        limit: 10,
+        knowledge_base_id: kb.id
+      });
+      const list = firstArrayByPaths(listResp, [
+        "knowledge_list",
+        "data.knowledge_list",
+        "result.knowledge_list",
+        "data.result.knowledge_list"
+      ]);
+
+      json(res, 200, {
+        fixed_kb: { id: kb.id, name: kb.name, source: kb.source },
+        get_knowledge_base: {
+          keys:
+            kbInfoResp && typeof kbInfoResp === "object"
+              ? Object.keys(kbInfoResp).slice(0, 30)
+              : [],
+          info_found: Boolean(kbInfo),
+          info_name: kbInfo && typeof kbInfo === "object" ? kbInfo.name || null : null
+        },
+        get_knowledge_list: {
+          keys: listResp && typeof listResp === "object" ? Object.keys(listResp).slice(0, 30) : [],
+          count: Array.isArray(list) ? list.length : 0,
+          sample: Array.isArray(list) ? list.slice(0, 3).map((x) => ({ media_id: x?.media_id, title: x?.title })) : []
+        }
+      });
+    } catch (e) {
+      json(res, 500, {
+        error: e?.message || "API_ERROR",
+        code: e?.code || null,
+        ret_code: e?.ret_code ?? null
+      });
+    }
+    return true;
+  }
+
+  if (pathname === "/api/kb/list" && req.method === "POST") {
+    const kb = await resolveKnowledgeBaseIdOrError(false);
+    if (!kb.ok) {
+      json(res, 500, { error: kb.error });
+      return true;
+    }
+    json(res, 200, { knowledge_bases: [{ id: kb.id, name: kb.name }] });
+    return true;
+  }
+
+  if (pathname === "/api/qa/ask" && req.method === "POST") {
+    try {
+      const body = await readJsonBody(req);
+      let kb = await resolveKnowledgeBaseIdOrError(false);
+      if (!kb.ok) {
+        json(res, 500, { error: kb.error });
+        return true;
+      }
+
+      const requestedKbId = String(body?.knowledge_base_id || "").trim();
+      if (requestedKbId && requestedKbId !== kb.id) {
+        json(res, 400, { error: "当前服务仅允许访问固定知识库：" + kb.name });
+        return true;
+      }
+
+      const knowledgeBaseId = kb.id;
+      const question = String(body?.question || "").trim();
+      if (!question) {
+        json(res, 400, { error: "缺少 question" });
+        return true;
+      }
+
+      const bjNow = beijingNowString();
+      const maybeCode = extractFirstStockCode(question);
+      let quoteLine = "";
+      if (maybeCode) {
+        try {
+          const q = await fetchQuoteSnapshot(maybeCode);
+          if (q) {
+            quoteLine =
+              "行情快照（腾讯财经）： " +
+              (q.name ? q.name + " " : "") +
+              q.code +
+              " 最新价 " +
+              String(q.currentPrice) +
+              " 昨收 " +
+              String(q.basePrice) +
+              " 标的 " +
+              q.symbol;
+          }
+        } catch {}
+      }
+      const questionForModel =
+        "北京时间： " + bjNow + (quoteLine ? "\n" + quoteLine : "") + "\n\n" + question;
+
+      const trialIndex = Number(body?.trial_index || 0);
+      const vipKey = String(body?.vip_key || "").trim();
+      const vipUnlimited = body?.vip_unlimited === true && isLocalRequest(req);
+      const adminOk = isAdminAuthed(req);
+      const vipKeyOk = Boolean(vipKey && isVipKeyValid(vipKey));
+      const quotaBypass = Boolean(vipKeyOk || vipUnlimited || adminOk);
+      const vipEnhanced = Boolean(vipKeyOk || vipUnlimited);
+      const serverBypassQuota = trialIndex === 0 && (quotaBypass || isLocalRequest(req));
+
+      let serverUsedAfter = null;
+      if (KB_QA_MAX > 0 && !serverBypassQuota && !quotaBypass) {
+        const q = quotaStateFor(req);
+        if (q.state.used >= KB_QA_MAX) {
+          json(res, 429, { error: "问答次数已用尽。", quota: { used: q.state.used, left: 0, max: KB_QA_MAX } });
+          return true;
+        }
+        q.state.used += 1;
+        _kbQaQuota.set(q.key, q.state);
+        serverUsedAfter = q.state.used;
+      }
+
+      let retrieved = null;
+      try {
+        retrieved = await searchKnowledgeMulti(knowledgeBaseId, question);
+      } catch (e0) {
+        if (e0?.code === "IMA_API_RET_CODE_NOT_ZERO" && e0?.ret_code === 220004) {
+          invalidateKbIdCache();
+          kb = await resolveKnowledgeBaseIdOrError(true);
+          if (!kb.ok) throw e0;
+          retrieved = await searchKnowledgeMulti(kb.id, question);
+        } else {
+          throw e0;
+        }
+      }
+      const sources = Array.isArray(retrieved?.sources) ? retrieved.sources : [];
+
+      let answer = "";
+      try {
+        const mode = adminOk || vipEnhanced ? "full" : serverUsedAfter === 2 || trialIndex === 2 ? "blur" : "full";
+        const messages = buildRagMessagesWithMode(questionForModel, sources, mode, vipEnhanced);
+        answer = await openAiChatComplete(messages);
+        answer = ensureProfessionalSummary(answer);
+      } catch (e) {
+        answer =
+          "已完成知识库检索，但模型未配置或调用失败。\n\n" +
+          (e?.message ? `原因：${e.message}\n` : "") +
+          "你仍可根据“参考来源”里的高亮内容自行确认。";
+        answer = ensureProfessionalSummary(answer);
+      }
+
+      json(res, 200, {
+        answer,
+        sources: sources.slice(0, 8).map(safePublicSource),
+        retrieval: {
+          mode: retrieved?.mode || null,
+          queries: retrieved?.queries || []
+        }
+      });
+    } catch (e) {
+      json(res, 500, { error: e?.message || "API_ERROR" });
+    }
+    return true;
+  }
+
+  return false;
+}
+
+function contentTypeByExt(ext) {
+  const e = ext.toLowerCase();
+  if (e === ".html") return "text/html; charset=utf-8";
+  if (e === ".js") return "application/javascript; charset=utf-8";
+  if (e === ".css") return "text/css; charset=utf-8";
+  if (e === ".json") return "application/json; charset=utf-8";
+  if (e === ".png") return "image/png";
+  if (e === ".jpg" || e === ".jpeg") return "image/jpeg";
+  if (e === ".webp") return "image/webp";
+  if (e === ".gif") return "image/gif";
+  if (e === ".svg") return "image/svg+xml";
+  return "application/octet-stream";
+}
+
+async function serveStatic(req, res, pathname) {
+  let rel = pathname === "/" ? "/index.html" : pathname;
+  rel = rel.replace(/\0/g, "");
+  if (!rel.startsWith("/")) rel = "/" + rel;
+  const fsPath = path.join(__dirname, rel);
+  const normalized = path.normalize(fsPath);
+  if (!normalized.startsWith(__dirname)) {
+    res.writeHead(403);
+    res.end("Forbidden");
+    return;
+  }
+  try {
+    const st = await fs.stat(normalized);
+    if (st.isDirectory()) {
+      res.writeHead(302, { Location: pathname.replace(/\/$/, "") + "/index.html" });
+      res.end();
+      return;
+    }
+    const buf = await fs.readFile(normalized);
+    res.writeHead(200, {
+      "Content-Type": contentTypeByExt(path.extname(normalized)),
+      "Cache-Control": "no-store"
+    });
+    res.end(buf);
+  } catch {
+    res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Not Found");
+  }
+}
+
+const server = http.createServer(async (req, res) => {
+  try {
+    const u = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+    const pathname = u.pathname;
+
+    if (pathname === "/vip" && req.method === "GET") {
+      if (!VIP_SECRET) {
+        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Not Found");
+        return;
+      }
+      const token = String(u.searchParams.get("token") || "").trim();
+      if (VIP_ADMIN_TOKEN && !isLocalRequest(req) && token !== VIP_ADMIN_TOKEN) {
+        res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Forbidden");
+        return;
+      }
+      const key = vipKeyAtMinuteOffset(0);
+      const html =
+        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"/>" +
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>" +
+        "<title>VIP 密钥</title>" +
+        "<style>body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; background:#0b1220;color:#e5e7eb}" +
+        ".wrap{max-width:720px;margin:0 auto;padding:20px} .card{background:rgba(255,255,255,.06);border:1px solid rgba(148,163,184,.25);border-radius:16px;padding:16px}" +
+        ".k{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:14px;word-break:break-all;background:#0f141b;border:1px solid rgba(148,163,184,.25);border-radius:12px;padding:12px}" +
+        ".row{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px} button{cursor:pointer;border:0;border-radius:12px;padding:10px 14px;background:#d97706;color:#111827;font-weight:700}" +
+        ".muted{color:#94a3b8;font-size:12px;line-height:1.4;margin-top:10px}</style></head><body>" +
+        "<div class=\"wrap\"><div class=\"card\">" +
+        "<div style=\"letter-spacing:.14em;color:rgba(253,230,138,.95);font-size:12px\">ADMIN</div>" +
+        "<div style=\"font-size:18px;font-weight:800;margin-top:6px\">VIP 增强密钥</div>" +
+        "<div class=\"muted\">将密钥发送给用户，在问答弹窗的 “VIP 增强密钥” 中填写即可。</div>" +
+        "<div class=\"k\" id=\"k\">" +
+        key +
+        "</div>" +
+        "<div class=\"row\">" +
+        "<button id=\"copy\">复制密钥</button>" +
+        "<button id=\"refresh\" style=\"background:#334155;color:#e5e7eb\">刷新</button>" +
+        "</div>" +
+        "<div class=\"muted\">密钥有效期较短，请及时使用。</div>" +
+        "</div></div>" +
+        "<script>document.getElementById('refresh').addEventListener('click',()=>location.reload());" +
+        "document.getElementById('copy').addEventListener('click',async()=>{const t=document.getElementById('k').innerText.trim();" +
+        "try{await navigator.clipboard.writeText(t);document.getElementById('copy').innerText='已复制';setTimeout(()=>document.getElementById('copy').innerText='复制密钥',1200);}catch(e){alert('复制失败，请手动复制。')}});" +
+        "</script></body></html>";
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(html);
+      return;
+    }
+
+    if (pathname.startsWith("/api/")) {
+      const handled = await handleApi(req, res, pathname);
+      if (!handled) json(res, 404, { error: "NOT_FOUND" });
+      return;
+    }
+
+    await serveStatic(req, res, pathname);
+  } catch {
+    res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Internal Server Error");
+  }
+});
+
+const portLockedByEnv = Boolean(readEnvTrim("PORT"));
+let currentPort = PORT;
+let bindAttempts = 0;
+
+server.on("error", (err) => {
+  const code = err && typeof err === "object" ? err.code : null;
+  if (code === "EADDRINUSE" && !portLockedByEnv && bindAttempts < 10) {
+    bindAttempts += 1;
+    currentPort += 1;
+    server.listen(currentPort, HOST);
+    return;
+  }
+  process.stderr.write(String(err?.stack || err?.message || err) + "\n");
+  process.exit(1);
+});
+
+server.listen(currentPort, HOST, () => {
+  const urls =
+    HOST === "::"
+      ? [`http://localhost:${currentPort}/`, `http://127.0.0.1:${currentPort}/`]
+      : [`http://${HOST}:${currentPort}/`];
+  process.stdout.write(`Server running at ${urls.join(" ")}\n`);
+});

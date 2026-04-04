@@ -7,5 +7,7 @@
  */
 window.__ALPHA_LOCAL = {
   secretOk: true,
-  useUsageLimit: true
+  useUsageLimit: true,
+  vipUnlimited: false,
+  vipAdminToken: ""
 };

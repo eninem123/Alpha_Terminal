@@ -9,8 +9,10 @@
 - **编码**：接口正文为 GBK，使用 `TextDecoder('gbk')` 解码，避免股票简称乱码。
 - **代码校验**：格式错误、规则不支持或接口无数据时，通过页面弹层提示「股票代码错误」（微信内比 `alert` 更稳定）。
 - **体验次数**：默认成功查询计次，用尽后弹出联系说明；可通过本地密钥文件关闭限制（见下文）。
+- **知识库问答**：通过本地/服务器的 `server.js` 连接 IMA 知识库检索 + 模型生成回答（答案支持 Markdown 渲染与分页；默认免费 2 次，第二次会“模糊化”）。
 - **休市与交易时段**：内置 **2026 年** 沪深北交所法定节假日全天休市日期（按当年交易所通知维护）；页头会提示「法定节假日 / 周末 / 盘前·午间·盘后」等状态。**仅在连续竞价时段**对展示价叠加微小波动；法定假日与周末等不撮合时段仅显示行情快照、不做随机跳动。
 - **行情刷新**：定时拉取接口更新价格锚点。
+- **合规资讯滚动**：横向滚动展示可点击标题；固定附带 **腾讯财经**、有代码时附带 **腾讯自选股（gu.qq.com）** 入口。正文快讯通过 **新浪财经公开滚动 JSONP** 拉取（浏览器可加载），成功查询某标的后会按简称/代码尽量把相关标题排在前面。
 
 ## 目录结构
 
@@ -18,6 +20,8 @@
 |------|------|
 | `index.html` | 页面结构、样式、合规遮罩、错误弹层、脚本加载顺序 |
 | `core.js` | 行情请求、Base64 包一层后的数据解析、交互与定时刷新 |
+| `server.js` | 本地/服务器服务端：知识库检索问答、VIP 校验、静态资源托管（可配合 Nginx 反代） |
+| `agent.md` | VIP 增强模式下追加的智能体设定（会叠加到问答的系统提示词） |
 | `unlock-secret.example.js` | 本地「无限次」配置模板，复制为 `unlock-secret.js` 使用 |
 | `unlock-secret.js` | **勿提交仓库**（已在 `.gitignore`），存在则按配置绕过次数限制 |
 | `wechat.jpg` | 可选，锁定时展示的二维码图片 |
@@ -35,6 +39,15 @@ python -m http.server 8080
 
 浏览器访问 `http://localhost:8080/`。
 
+## 构建样式（Tailwind 本地化）
+
+为了避免移动端/微信环境对 `cdn.tailwindcss.com` 的拦截，本项目改为使用本地生成的 `tailwind.min.css`。
+
+```bash
+npm install
+npm run build:css
+```
+
 ## 本地无限次调试（`unlock-secret.js`）
 
 1. 复制 `unlock-secret.example.js` 为 **`unlock-secret.js`**（与 `index.html` 同目录）。
@@ -50,6 +63,70 @@ python -m http.server 8080
 3. 需要**恢复与线上一致的次数限制**时，将 `useUsageLimit` 改为 `true`。
 
 未部署 `unlock-secret.js` 的环境（如线上）会自动走默认限次逻辑。
+
+## 知识库问答（本地/服务器）
+
+页面里的「知识库问答」需要启动 `server.js`（浏览器不直接持有 IMA/模型密钥）。
+
+### 关键环境变量
+
+IMA（必需）：
+
+- `IMA_OPENAPI_CLIENTID`
+- `IMA_OPENAPI_APIKEY`
+
+模型（二选一）：
+
+- `DEEPSEEK_API_KEY`（默认使用 `https://api.deepseek.com/v1`，可用 `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` 覆盖）
+- 或 `TENCENT_OAI_API_KEY`（OpenAI 兼容风格；可用 `TENCENT_OAI_BASE_URL` / `TENCENT_OAI_MODEL` 覆盖）
+
+知识库固定（推荐）：
+
+- `IMA_FIXED_KB_NAME=理财书籍`（服务端会先按名称查一次 OpenAPI 的 knowledge_base_id 并缓存；失效时自动重取）
+
+### VIP（可选）
+
+- `VIP_SECRET`：用于生成“当前北京时间 + 分钟”的动态密钥。它是密钥生成的私密种子，必须只保存在服务器，不要写到前端。
+- `VIP_ADMIN_TOKEN`：用于保护管理员取密钥入口（不带 token 的外网请求会被拒绝）。
+- `VIP_WINDOW_MINUTES`：密钥容忍窗口（默认 3）。管理员生成的密钥在短时间内有效，过期需刷新拿新密钥。
+
+说明：
+
+- `VIP_ADMIN_TOKEN` 只是“访问控制”，防止任何人直接打开管理员页面拿密钥。
+- `VIP_SECRET` 决定“密钥本身不可猜”。如果只有 token 没有 secret，那么“密钥”无法绑定北京时间生成规则，也不具备加密意义。
+
+管理员友好页面：
+
+- `GET /vip?token=VIP_ADMIN_TOKEN`：打开即显示密钥，可一键复制。
+
+注意：token 放在 URL 里可能会出现在服务器访问日志中。更安全的做法是给 `/vip` 增加 IP 白名单或额外 Basic Auth。
+
+### 启动（本地）
+
+```bash
+node server.js
+```
+
+## 服务器部署与更新（Ubuntu + Nginx）
+
+建议架构：Nginx 托管静态页面，并把 `/api/` 反代到 Node（`127.0.0.1:8787`），不要把 Node 端口暴露到公网。
+
+### 密钥文件
+
+将服务端密钥放到服务器（例如）：
+
+- `/root/.config/ima/.env`
+- 权限建议：`chmod 600 /root/.config/ima/.env`
+
+并在 systemd 中指定：
+
+- `Environment=IMA_ENV_FILE=/root/.config/ima/.env`
+
+### 更新代码
+
+1. 上传覆盖 `/var/www/html/` 下的 `index.html` / `core.js` / `server.js` 等文件
+2. 重启服务：`sudo systemctl restart alpha-terminal`
+3. 健康检查：`curl -s -X POST http://127.0.0.1/api/health`
 
 ## 支持的证券代码规则
 
