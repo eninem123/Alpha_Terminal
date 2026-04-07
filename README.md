@@ -62,6 +62,12 @@ npm run build:css
 
 3. 需要**恢复与线上一致的次数限制**时，将 `useUsageLimit` 改为 `true`。
 
+重要说明：
+
+- `unlock-secret.js` 里的本地开关（如 `useUsageLimit`、`vipUnlimited`）**只在 `localhost / 127.0.0.1` 调试环境生效**。
+- 即使你把 `unlock-secret.js` 上传到服务器，线上真实访客也**不会**因为这个文件直接获得不限次能力。
+- 线上不限次/管理员权限请使用下面的“管理员登录（服务端）”方案。
+
 未部署 `unlock-secret.js` 的环境（如线上）会自动走默认限次逻辑。
 
 ## 知识库问答（本地/服务器）
@@ -101,6 +107,29 @@ IMA（必需）：
 
 注意：token 放在 URL 里可能会出现在服务器访问日志中。更安全的做法是给 `/vip` 增加 IP 白名单或额外 Basic Auth。
 
+### 管理员登录（服务端，推荐）
+
+如果你希望“永久不限次”并且**可以部署到线上**，不要把管理员账号密码写进前端文件；请改用服务端环境变量：
+
+- `ADMIN_USER=你的管理员账号`
+- `ADMIN_PASS=你的管理员密码`
+- `ADMIN_SESSION_SECRET=一段随机长字符串`
+
+生成随机串示例：
+
+```bash
+openssl rand -hex 32
+```
+
+说明：
+
+- 管理员账号密码只保存在服务器 `.env`，前端不会暴露。
+- 登录成功后，服务端会下发 `HttpOnly Cookie` 会话，前端只拿到“是否已登录”的状态。
+- 管理员权限默认用于：**不限问答次数 / 不触发第二次模糊**。
+- VIP 增强（叠加 `agent.md`）：有效 VIP 密钥、本地 `vip_unlimited`（仅本机请求）、或**已管理员登录**时均会启用；未登录的普通用户需填写密钥才走增强提示词。
+
+当前页面中，双击“联系微信”的微信号可打开管理员登录框；实际校验在服务端完成。
+
 ### 启动（本地）
 
 ```bash
@@ -127,6 +156,15 @@ node server.js
 1. 上传覆盖 `/var/www/html/` 下的 `index.html` / `core.js` / `server.js` 等文件
 2. 重启服务：`sudo systemctl restart alpha-terminal`
 3. 健康检查：`curl -s -X POST http://127.0.0.1/api/health`
+4. vip:curl -s "http://www.aialter.site/api/vip/key?token=tanchengjun"
+### 常见排错
+
+- **知识库问答弹窗显示“问答服务错误：xxx”**
+  - 这是前端把服务端真实错误透出了；优先根据 `xxx` 排查 IMA/模型/反代问题。
+- **管理员登录后前端看起来是“不限”，但实际请求仍受限**
+  - 新版本已在页面初始化、打开问答前、提交提问前主动同步 `/api/admin/status`，确保以前端展示与服务端会话一致。
+- **手机端样式错乱**
+  - 确认同时上传了 `tailwind.min.css` 与最新 `index.html`。
 
 ## 支持的证券代码规则
 

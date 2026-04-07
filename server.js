@@ -84,6 +84,8 @@ const HOST =
 const KB_QA_MAX = Math.max(0, Number(readEnvTrim("KB_QA_MAX") || 2));
 const KB_QA_WINDOW_MS = 24 * 60 * 60 * 1000;
 const _kbQaQuota = new Map();
+const KB_QA_RISK_PREFIX =
+  "⚠️ 风险提示：以下内容仅为市场信息整理与板块逻辑分析，不构成任何投资建议。股市有风险，投资需谨慎。\n\n";
 
 const VIP_SECRET = readEnvTrim("VIP_SECRET");
 const VIP_WINDOW_MINUTES = Math.max(1, Number(readEnvTrim("VIP_WINDOW_MINUTES") || 3));
@@ -797,6 +799,224 @@ async function fetchQuoteSnapshot(code) {
   return { code, symbol, name, currentPrice, basePrice, ts: Date.now() };
 }
 
+const EM_UT = "fa5fd1943c7b386f172d6893dbfba10b";
+const SINA_FINANCE_ROLL =
+  "https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2515&num=12&page=1";
+/** VIP 快照复用：连续提问不必重复打东财/新浪，显著降低首包延迟 */
+const VIP_SNAPSHOT_TTL_MS = Math.max(
+  10_000,
+  Number(readEnvTrim("VIP_SNAPSHOT_TTL_MS") || 45_000)
+);
+const VIP_SNAPSHOT_FETCH_MS = Math.max(
+  1500,
+  Math.min(20_000, Number(readEnvTrim("VIP_SNAPSHOT_FETCH_MS") || 4200))
+);
+let _vipSnapshotCache = { text: "", expiresAt: 0, inflight: null };
+
+async function fetchJsonNoStore(url, timeoutMs) {
+  const ms = Math.max(800, Math.min(20_000, Number(timeoutMs || 5000)));
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const res = await fetch(url, {
+      cache: "no-store",
+      signal: ctrl.signal,
+      headers: {
+        Accept: "application/json,text/plain,*/*",
+        "User-Agent": "Mozilla/5.0 (compatible; AlphaTerminal-KB/1.0)"
+      }
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(tid);
+  }
+}
+
+function formatHandBrief(n) {
+  if (n === null || n === undefined || n === "-") return "—";
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "—";
+  if (x >= 1e8) return (x / 1e8).toFixed(2) + "亿手";
+  if (x >= 1e4) return (x / 1e4).toFixed(2) + "万手";
+  return String(Math.round(x));
+}
+
+function formatAmtBrief(n) {
+  if (n === null || n === undefined || n === "-") return "—";
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "—";
+  if (x >= 1e12) return (x / 1e12).toFixed(2) + "万亿";
+  if (x >= 1e8) return (x / 1e8).toFixed(2) + "亿";
+  if (x >= 1e4) return (x / 1e4).toFixed(2) + "万";
+  return String(Math.round(x));
+}
+
+function formatPctBrief(f3) {
+  const x = Number(f3);
+  if (!Number.isFinite(x)) return "—";
+  return (x > 0 ? "+" : "") + x.toFixed(2) + "%";
+}
+
+function rankSinaHeadlinesForThemes(items) {
+  const policyRe =
+    /政策|国务院|央行|证监会|金融监管|发改委|工信部|商务部|能源局|国资委|发布会|宏观|经济数据|统计局|科技|新能源|消费|光伏|锂电|半导体|人工智能|新质|降准|降息|LPR|PMI|CPI|PPI|GDP|产业|规划|试点|收储|补贴|专项债|注册制|北交所|沪深港通|科创板|创业板/;
+  const arr = Array.isArray(items) ? items : [];
+  const scored = arr.map((it, i) => {
+    const title = String(it?.title || "");
+    const intro = String(it?.intro || "");
+    let s = 0;
+    if (policyRe.test(title)) s += 3;
+    if (policyRe.test(intro)) s += 1;
+    return { it, s, i };
+  });
+  scored.sort((a, b) => b.s - a.s || a.i - b.i);
+  return scored.map((x) => x.it);
+}
+
+/**
+ * VIP 问答前拼接的公开数据：东方财富 push2（指数/ETF/行业板块）、新浪财经滚动快讯。
+ * 均为网页端常见公开接口，非官方承诺 SLA；失败时返回简短说明。
+ */
+async function buildVipMarketSnapshot() {
+  const lines = [];
+  lines.push(
+    "【VIP 公开行情与资讯快照（来源：东方财富 push2、新浪财经财经滚动等公开接口；仅供信息核对，不构成投资建议）】"
+  );
+
+  const secids = [
+    "1.000001",
+    "0.399001",
+    "1.000300",
+    "1.000905",
+    "1.000688",
+    "0.399006",
+    "1.510300",
+    "1.510500",
+    "1.588000"
+  ].join(",");
+  const emUlistUrl =
+    "https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&ut=" +
+    EM_UT +
+    "&secids=" +
+    secids +
+    "&fields=f12,f14,f2,f3,f5,f6,f104,f105,f106,f107";
+  const emSectorUrl =
+    "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=8&po=1&np=1&fltt=2&invt=2&fid=f62&fs=m:90+t:2+f:!50&fields=f12,f14,f2,f3,f5,f6,f62,f184&ut=b2884a393a59ad64002292a3e90d46a5";
+
+  const [emList, emSec, sina] = await Promise.all([
+    fetchJsonNoStore(emUlistUrl, VIP_SNAPSHOT_FETCH_MS),
+    fetchJsonNoStore(emSectorUrl, VIP_SNAPSHOT_FETCH_MS),
+    fetchJsonNoStore(SINA_FINANCE_ROLL, VIP_SNAPSHOT_FETCH_MS)
+  ]);
+
+  const diff = emList && emList.data && Array.isArray(emList.data.diff) ? emList.data.diff : null;
+  if (diff && diff.length) {
+    lines.push(
+      "一、主要指数与宽基 ETF（点位、涨跌幅、成交量/额；上证/深证成分涨跌家数为东财接口字段 f104/f105/f106 的汇总口径，ETF 行多为「—」）"
+    );
+    for (let i = 0; i < diff.length; i++) {
+      const row = diff[i] || {};
+      const name = String(row.f14 || "").trim() || "—";
+      const code = String(row.f12 || "").trim();
+      const px = row.f2;
+      const pct = formatPctBrief(row.f3);
+      const vol = formatHandBrief(row.f5);
+      const amt = formatAmtBrief(row.f6);
+      let breadth = "";
+      const u = Number(row.f104);
+      const d = Number(row.f105);
+      const f = Number(row.f106);
+      if (Number.isFinite(u) && Number.isFinite(d) && Number.isFinite(f)) {
+        breadth = ` 涨跌家数(约)：涨${u}/跌${d}/平${f}`;
+      }
+      lines.push(
+        "- " +
+          name +
+          (code ? "(" + code + ")" : "") +
+          " 最新价 " +
+          String(px) +
+          " 涨跌 " +
+          pct +
+          " 成交量 " +
+          vol +
+          " 成交额 " +
+          amt +
+          breadth
+      );
+    }
+  } else {
+    lines.push("一、指数与宽基 ETF：本帧未能从东财接口取回数据（超时或结构变化）。");
+  }
+
+  const sdiff = emSec && emSec.data && Array.isArray(emSec.data.diff) ? emSec.data.diff : null;
+  if (sdiff && sdiff.length) {
+    lines.push(
+      "二、行业板块资金流向（东财行业列表按主力净流入排序；f62 为接口返回的净流入相关字段，单位为人民币估算值）"
+    );
+    for (let i = 0; i < Math.min(8, sdiff.length); i++) {
+      const row = sdiff[i] || {};
+      const name = String(row.f14 || "").trim() || "—";
+      const pct = formatPctBrief(row.f3);
+      const net = formatAmtBrief(row.f62);
+      const r184 = row.f184;
+      const ratio =
+        r184 !== null && r184 !== undefined && r184 !== "-"
+          ? String(Number(r184).toFixed(2)) + "%"
+          : "—";
+      lines.push("- " + name + " 涨跌 " + pct + " 估算主力净流入约 " + net + "（接口占比字段 " + ratio + "）");
+    }
+  } else {
+    lines.push("二、行业板块资金：本帧未能取回数据。");
+  }
+
+  lines.push("三、财经快讯标题摘录（新浪滚动；优先排列含政策/产业/宏观关键词的条目，全文以媒体原文为准）");
+  const raw = sina && sina.result && Array.isArray(sina.result.data) ? sina.result.data : [];
+  const ranked = rankSinaHeadlinesForThemes(raw);
+  let n = 0;
+  for (let i = 0; i < ranked.length && n < 10; i++) {
+    const t = String(ranked[i]?.title || "").trim();
+    if (!t) continue;
+    lines.push("- " + t);
+    n += 1;
+  }
+  if (!n) {
+    lines.push("-（本帧未能拉取快讯或列表为空）");
+  }
+
+  lines.push(
+    "四、盘中核对要点（框架，非结论）：① 开盘后尽快浏览是否有科技/新能源/消费等产业政策或宏观数据发布，往往影响全天主线；② 开盘后约 30 分钟重点观察沪深300、中证500、科创50 及表中宽基 ETF 的成交额是否异常放大或萎缩，并结合板块净流入辅助判断机构与主线方向；③ 融资余额请以上交所/深交所官方融资融券披露或专业终端为准（本快照未接稳定公开融资余额序列接口）。"
+  );
+
+  return lines.join("\n");
+}
+
+async function getVipMarketSnapshotCached() {
+  const now = Date.now();
+  if (_vipSnapshotCache.text && now < _vipSnapshotCache.expiresAt) {
+    return _vipSnapshotCache.text;
+  }
+  if (_vipSnapshotCache.inflight) {
+    return _vipSnapshotCache.inflight;
+  }
+  _vipSnapshotCache.inflight = (async () => {
+    try {
+      const text = await buildVipMarketSnapshot();
+      _vipSnapshotCache.text = text;
+      _vipSnapshotCache.expiresAt = Date.now() + VIP_SNAPSHOT_TTL_MS;
+      return text;
+    } catch (e) {
+      _vipSnapshotCache.inflight = null;
+      throw e;
+    } finally {
+      _vipSnapshotCache.inflight = null;
+    }
+  })();
+  return _vipSnapshotCache.inflight;
+}
+
 function beijingNowString() {
   const d = new Date();
   const parts = new Intl.DateTimeFormat("zh-CN", {
@@ -1296,37 +1516,17 @@ async function handleApi(req, res, pathname) {
         return true;
       }
 
-      const bjNow = beijingNowString();
-      const maybeCode = extractFirstStockCode(question);
-      let quoteLine = "";
-      if (maybeCode) {
-        try {
-          const q = await fetchQuoteSnapshot(maybeCode);
-          if (q) {
-            quoteLine =
-              "行情快照（腾讯财经）： " +
-              (q.name ? q.name + " " : "") +
-              q.code +
-              " 最新价 " +
-              String(q.currentPrice) +
-              " 昨收 " +
-              String(q.basePrice) +
-              " 标的 " +
-              q.symbol;
-          }
-        } catch {}
-      }
-      const questionForModel =
-        "北京时间： " + bjNow + (quoteLine ? "\n" + quoteLine : "") + "\n\n" + question;
-
       const trialIndex = Number(body?.trial_index || 0);
       const vipKey = String(body?.vip_key || "").trim();
       const vipUnlimited = body?.vip_unlimited === true && isLocalRequest(req);
       const adminOk = isAdminAuthed(req);
       const vipKeyOk = Boolean(vipKey && isVipKeyValid(vipKey));
       const quotaBypass = Boolean(vipKeyOk || vipUnlimited || adminOk);
-      const vipEnhanced = Boolean(vipKeyOk || vipUnlimited);
+      const vipEnhanced = Boolean(vipKeyOk || vipUnlimited || adminOk);
       const serverBypassQuota = trialIndex === 0 && (quotaBypass || isLocalRequest(req));
+
+      const bjNow = beijingNowString();
+      const maybeCode = extractFirstStockCode(question);
 
       let serverUsedAfter = null;
       if (KB_QA_MAX > 0 && !serverBypassQuota && !quotaBypass) {
@@ -1340,19 +1540,77 @@ async function handleApi(req, res, pathname) {
         serverUsedAfter = q.state.used;
       }
 
+      let quoteLine = "";
+      let vipMarketBlock = "";
       let retrieved = null;
-      try {
-        retrieved = await searchKnowledgeMulti(knowledgeBaseId, question);
-      } catch (e0) {
-        if (e0?.code === "IMA_API_RET_CODE_NOT_ZERO" && e0?.ret_code === 220004) {
-          invalidateKbIdCache();
-          kb = await resolveKnowledgeBaseIdOrError(true);
-          if (!kb.ok) throw e0;
-          retrieved = await searchKnowledgeMulti(kb.id, question);
-        } else {
+
+      async function runKbSearch() {
+        try {
+          return await searchKnowledgeMulti(knowledgeBaseId, question);
+        } catch (e0) {
+          if (e0?.code === "IMA_API_RET_CODE_NOT_ZERO" && e0?.ret_code === 220004) {
+            invalidateKbIdCache();
+            kb = await resolveKnowledgeBaseIdOrError(true);
+            if (!kb.ok) throw e0;
+            return await searchKnowledgeMulti(kb.id, question);
+          }
           throw e0;
         }
       }
+
+      if (vipEnhanced) {
+        const quoteP =
+          maybeCode !== ""
+            ? fetchQuoteSnapshot(maybeCode).catch(() => null)
+            : Promise.resolve(null);
+        const snapP = getVipMarketSnapshotCached().catch(() => "");
+        const searchP = runKbSearch();
+        const [qSnap, snap, ret] = await Promise.all([quoteP, snapP, searchP]);
+        if (qSnap) {
+          quoteLine =
+            "行情快照（腾讯财经）： " +
+            (qSnap.name ? qSnap.name + " " : "") +
+            qSnap.code +
+            " 最新价 " +
+            String(qSnap.currentPrice) +
+            " 昨收 " +
+            String(qSnap.basePrice) +
+            " 标的 " +
+            qSnap.symbol;
+        }
+        vipMarketBlock =
+          snap ||
+          "【VIP 公开行情快照】本帧聚合失败（网络或服务异常），请稍后在盘中自行查阅行情终端与交易所披露。";
+        retrieved = ret;
+      } else {
+        if (maybeCode) {
+          try {
+            const q = await fetchQuoteSnapshot(maybeCode);
+            if (q) {
+              quoteLine =
+                "行情快照（腾讯财经）： " +
+                (q.name ? q.name + " " : "") +
+                q.code +
+                " 最新价 " +
+                String(q.currentPrice) +
+                " 昨收 " +
+                String(q.basePrice) +
+                " 标的 " +
+                q.symbol;
+            }
+          } catch {}
+        }
+        retrieved = await runKbSearch();
+      }
+
+      const questionForModel =
+        "北京时间： " +
+        bjNow +
+        (quoteLine ? "\n" + quoteLine : "") +
+        (vipMarketBlock ? "\n\n" + vipMarketBlock : "") +
+        "\n\n" +
+        question;
+
       const sources = Array.isArray(retrieved?.sources) ? retrieved.sources : [];
 
       let answer = "";
@@ -1368,6 +1626,8 @@ async function handleApi(req, res, pathname) {
           "你仍可根据“参考来源”里的高亮内容自行确认。";
         answer = ensureProfessionalSummary(answer);
       }
+
+      answer = KB_QA_RISK_PREFIX + String(answer || "").trim();
 
       json(res, 200, {
         answer,
@@ -1514,4 +1774,13 @@ server.listen(currentPort, HOST, () => {
       ? [`http://localhost:${currentPort}/`, `http://127.0.0.1:${currentPort}/`]
       : [`http://${HOST}:${currentPort}/`];
   process.stdout.write(`Server running at ${urls.join(" ")}\n`);
+  resolveKnowledgeBaseIdOrError(false)
+    .then((kb) => {
+      if (kb && kb.ok) {
+        process.stdout.write(
+          "Fixed knowledge_base_id resolved (warm cache for /api/kb/list).\n"
+        );
+      }
+    })
+    .catch(() => {});
 });

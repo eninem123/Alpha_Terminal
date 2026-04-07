@@ -7,8 +7,18 @@
   const MAX_KB_QA_TRIES = 2;
   const KB_QA_STORAGE_KEY = "_kbqa_limit";
 
+  function isLocalDevHost() {
+    try {
+      const h = String(location && location.hostname ? location.hostname : "").trim().toLowerCase();
+      return h === "localhost" || h === "127.0.0.1" || h === "::1";
+    } catch {
+      return false;
+    }
+  }
+
   /** 项目根目录可选 unlock-secret.js：secretOk 且未 useUsageLimit 时不计次 */
   function isLocalUsageBypass() {
+    if (!isLocalDevHost()) return false;
     const L = typeof window !== "undefined" ? window.__ALPHA_LOCAL : null;
     if (!L || typeof L !== "object") return false;
     if (L.secretOk !== true) return false;
@@ -27,12 +37,47 @@
   const localUsageBypass = isLocalUsageBypass();
   const adminAuthed = isAdminAuthed();
   const localVipUnlimited = (() => {
+    if (!isLocalDevHost()) return false;
     const L = typeof window !== "undefined" ? window.__ALPHA_LOCAL : null;
     if (!L || typeof L !== "object") return false;
     return L.vipUnlimited === true;
   })();
-  const effectiveUsageBypass = localUsageBypass || adminAuthed;
-  const effectiveVipUnlimited = localVipUnlimited || adminAuthed;
+  let effectiveUsageBypass = localUsageBypass || adminAuthed;
+  let effectiveVipUnlimited = localVipUnlimited || adminAuthed;
+
+  function applyAdminAuthState(authed) {
+    const ok = authed === true;
+    try {
+      if (ok) localStorage.setItem("_admin_authed", "1");
+      else localStorage.removeItem("_admin_authed");
+    } catch {}
+    effectiveUsageBypass = localUsageBypass || ok;
+    effectiveVipUnlimited = localVipUnlimited || ok;
+    updateTriesLeftUI();
+    updateKbQuotaUI();
+  }
+
+  async function syncAdminAuthStatus() {
+    try {
+      const r = await fetchWithTimeout(
+        "/api/admin/status",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({})
+        },
+        20000
+      );
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        return isAdminAuthed();
+      }
+      applyAdminAuthState(Boolean(j && j.authed === true));
+      return Boolean(j && j.authed === true);
+    } catch {
+      return isAdminAuthed();
+    }
+  }
 
   /* ---------- A 股交易日历（法定节假日全天休市；每年按交易所公告更新） ---------- */
   function formatLocalYMD(d) {
@@ -874,7 +919,13 @@
     const ms = Number(timeoutMs || 0) > 0 ? Number(timeoutMs || 0) : 0;
     if (typeof AbortController === "function" && ms > 0) {
       const ctrl = new AbortController();
-      const tid = setTimeout(() => ctrl.abort(), ms);
+      const tid = setTimeout(() => {
+        try {
+          ctrl.abort(new DOMException("timeout", "TimeoutError"));
+        } catch {
+          ctrl.abort();
+        }
+      }, ms);
       try {
         return await fetch(url, Object.assign({}, options || {}, { signal: ctrl.signal }));
       } finally {
@@ -898,7 +949,7 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({})
-      }, 8000);
+      }, 60000);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         const msg = String((data && data.error) || ("HTTP_" + String(res.status)));
@@ -940,6 +991,7 @@
 
   async function askKbQuestion() {
     if (!kbQuestion || !kbSelect) return;
+    await syncAdminAuthStatus();
     const kbId = (kbSelect.value || "").trim();
     const q = (kbQuestion.value || "").trim();
     const vipKey = kbVipKey ? String(kbVipKey.value || "").trim() : "";
@@ -992,7 +1044,7 @@
           vip_key: vipKey,
           vip_unlimited: effectiveVipUnlimited
         })
-      }, 20000);
+      }, 120000);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (res.status === 429) {
@@ -1018,8 +1070,20 @@
         }))
       );
       setKbQaStatus("完成。");
-    } catch {
-      setKbQaStatus("请求失败：请确认本地服务端已启动。");
+    } catch (e) {
+      const name = String(e && e.name ? e.name : "");
+      const msg = String(e && e.message ? e.message : "").trim();
+      const timedOut =
+        name === "TimeoutError" ||
+        name === "AbortError" ||
+        /aborted|timeout/i.test(msg);
+      if (timedOut) {
+        setKbQaStatus("请求超时或已中断（知识库检索+生成可能较慢），请稍后重试；若经常发生可检查网络或联系服务端调大超时。");
+      } else if (msg) {
+        setKbQaStatus("请求失败：" + msg);
+      } else {
+        setKbQaStatus("请求失败，请稍后重试。");
+      }
     } finally {
       if (kbAskBtn) {
         kbAskBtn.disabled = false;
@@ -1123,27 +1187,10 @@
   }
 
   function init() {
-    fetchWithTimeout(
-      "/api/admin/status",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({})
-      },
-      3000
-    )
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        if (!j || typeof j !== "object") return;
-        if (j.authed === true) {
-          try {
-            localStorage.setItem("_admin_authed", "1");
-          } catch {}
-        } else {
-          try {
-            localStorage.removeItem("_admin_authed");
-          } catch {}
-        }
+    syncAdminAuthStatus()
+      .then(() => {
+        if (effectiveUsageBypass) unlockState();
+        else if (_u_limit > MAX_FREE_TRIES) setLockedState();
       })
       .catch(() => {});
 
@@ -1265,7 +1312,7 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ user: u, pass: p })
             },
-            6000
+            30000
           );
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
@@ -1279,14 +1326,25 @@
           setTimeout(function () {
             location.reload();
           }, 300);
-        } catch {
-          if (adminStatus) adminStatus.textContent = "登录失败，请稍后重试。";
+        } catch (e) {
+          const name = String(e && e.name ? e.name : "");
+          const msg = String(e && e.message ? e.message : "").trim();
+          const slow =
+            name === "TimeoutError" ||
+            name === "AbortError" ||
+            /timeout|aborted/i.test(msg);
+          if (adminStatus) {
+            adminStatus.textContent = slow
+              ? "登录请求超时或网络中断，请稍后重试。"
+              : "登录失败，请稍后重试。";
+          }
         }
       });
     }
 
     if (kbQaOpenBtn && kbQaModal) {
-      kbQaOpenBtn.addEventListener("click", function () {
+      kbQaOpenBtn.addEventListener("click", async function () {
+        await syncAdminAuthStatus();
         openKbQaModal();
         updateKbQuotaUI();
         setKbQaStatus("");
