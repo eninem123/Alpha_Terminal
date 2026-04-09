@@ -48,6 +48,12 @@ npm install
 npm run build:css
 ```
 
+## 自动化测试
+
+```bash
+npm test
+```
+
 ## 本地无限次调试（`unlock-secret.js`）
 
 1. 复制 `unlock-secret.example.js` 为 **`unlock-secret.js`**（与 `index.html` 同目录）。
@@ -73,6 +79,20 @@ npm run build:css
 ## 知识库问答（本地/服务器）
 
 页面里的「知识库问答」需要启动 `server.js`（浏览器不直接持有 IMA/模型密钥）。
+
+### 行情备用接口（服务端聚合）
+
+为提升弱网/拦截环境下的稳定性，前端行情会优先直连腾讯 `qt.gtimg.cn`；若失败会尝试请求同源服务端接口：
+
+- `GET /api/quote?code=600000`
+
+服务端会按顺序尝试公开数据源（无 API Key）：
+
+- 腾讯 `qt.gtimg.cn`
+- 东方财富 `push2.eastmoney.com`
+- 新浪 `hq.sinajs.cn`（不覆盖北交所代码时会自动跳过）
+
+并做短缓存与失败回退，尽量保证页面能持续显示“最近一次快照”而不是直接报错。
 
 ### 关键环境变量
 
@@ -165,6 +185,11 @@ node server.js
   - 新版本已在页面初始化、打开问答前、提交提问前主动同步 `/api/admin/status`，确保以前端展示与服务端会话一致。
 - **手机端样式错乱**
   - 确认同时上传了 `tailwind.min.css` 与最新 `index.html`。
+
+- **实时行情获取失败（NETWORK / 超时 / 解析错误）**
+  - 网络：检查手机是否拦截 `qt.gtimg.cn`，以及是否存在代理/企业网络阻断
+  - 超时：弱网下会自动重试 2 次并回退到 60 秒内的缓存快照
+  - 解析：腾讯接口偶发返回异常内容会被识别为 `PARSE/BAD_DATA`，同样会回退缓存
 
 ## 支持的证券代码规则
 

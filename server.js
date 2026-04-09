@@ -5,6 +5,13 @@ import { promises as fs, existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  codeToSymbol as codeToSymbolTencent,
+  codeToEastmoneySecid,
+  parseTencentQuoteText,
+  parseEastmoneyStockGetJson,
+  parseSinaHqText
+} from "./quote-utils.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -761,42 +768,120 @@ function decodeTencentQuoteBody(buffer) {
   }
 }
 
-function codeToSymbol(code) {
-  const c = String(code || "").trim();
-  if (!/^\d{6}$/.test(c)) return "";
-  const p2 = c.slice(0, 2);
-  const p3 = c.slice(0, 3);
-  if (p2 === "60" || p2 === "68" || p2 === "69") return "sh" + c;
-  if (p2 === "00" || p2 === "30") return "sz" + c;
-  if (p3 === "430" || p3 === "830" || p3 === "870" || p3 === "880" || p3 === "920") return "bj" + c;
-  return "";
-}
-
 function extractFirstStockCode(text) {
   const s = String(text || "");
   const m = s.match(/(^|[^\d])(\d{6})(?!\d)/);
   return m ? m[2] : "";
 }
 
+const QUOTE_CACHE_TTL_MS = 20_000;
+const _quoteCache = new Map();
+
 async function fetchQuoteSnapshot(code) {
-  const symbol = codeToSymbol(code);
+  const cached = _quoteCache.get(code);
+  if (cached && Date.now() - cached.ts < QUOTE_CACHE_TTL_MS) return cached;
+
+  const symbol = codeToSymbolTencent(code);
   if (!symbol) return null;
-  const res = await fetch(QUOTE_URL + encodeURIComponent(symbol), { cache: "no-store" });
-  if (!res.ok) return null;
-  const buf = await res.arrayBuffer();
-  const text = decodeTencentQuoteBody(buf);
-  if (!text || !text.trim()) return null;
-  if (/v_pv_none_match/i.test(text)) return null;
-  const m = text.match(/v_[a-z0-9]+="([^"]*)"/i);
-  if (!m) return null;
-  const parts = String(m[1] || "").split("~");
-  if (parts.length < 5) return null;
-  const currentPrice = parseFloat(parts[3]);
-  let basePrice = parseFloat(parts[4]);
-  if (!Number.isFinite(currentPrice) || currentPrice <= 0) return null;
-  if (!Number.isFinite(basePrice) || basePrice <= 0) basePrice = currentPrice;
-  const name = String(parts[1] || "").trim();
-  return { code, symbol, name, currentPrice, basePrice, ts: Date.now() };
+
+  const timeoutMs = 3800;
+
+  async function tryTencent() {
+    const url = QUOTE_URL + encodeURIComponent(symbol);
+    const maxAttempts = 2;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const ctrl = typeof AbortController === "function" ? new AbortController() : null;
+        const tid = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+        const res = await fetch(url, { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
+        if (tid) clearTimeout(tid);
+        if (!res.ok) throw new Error("HTTP_" + String(res.status));
+        const buf = await res.arrayBuffer();
+        const text = decodeTencentQuoteBody(buf);
+        const parsed = parseTencentQuoteText(text);
+        if (!parsed) return null;
+        return {
+          code,
+          symbol,
+          name: parsed.name,
+          currentPrice: parsed.currentPrice,
+          basePrice: parsed.basePrice,
+          ts: Date.now(),
+          provider: "tencent"
+        };
+      } catch {
+        if (attempt >= maxAttempts) return null;
+        await new Promise((r) => setTimeout(r, 120 * attempt));
+      }
+    }
+    return null;
+  }
+
+  async function fetchTextNoStore(url) {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        cache: "no-store",
+        signal: ctrl.signal,
+        headers: {
+          Accept: "text/plain,*/*",
+          Referer: "https://finance.sina.com.cn/",
+          "User-Agent": "Mozilla/5.0 (compatible; AlphaTerminal-Quote/1.0)"
+        }
+      });
+      if (!res.ok) return "";
+      return await res.text();
+    } catch {
+      return "";
+    } finally {
+      clearTimeout(tid);
+    }
+  }
+
+  async function tryEastmoney() {
+    const secid = codeToEastmoneySecid(code);
+    if (!secid) return null;
+    const url =
+      "https://push2.eastmoney.com/api/qt/stock/get?fltt=2&invt=2&ut=" +
+      EM_UT +
+      "&secid=" +
+      encodeURIComponent(secid) +
+      "&fields=f12,f14,f58,f43,f60";
+    const j = await fetchJsonNoStore(url, timeoutMs);
+    const parsed = parseEastmoneyStockGetJson(j);
+    if (!parsed) return null;
+    return {
+      code,
+      symbol,
+      name: parsed.name,
+      currentPrice: parsed.currentPrice,
+      basePrice: parsed.basePrice,
+      ts: Date.now(),
+      provider: "eastmoney"
+    };
+  }
+
+  async function trySina() {
+    if (!symbol || symbol.startsWith("bj")) return null;
+    const url = "https://hq.sinajs.cn/list=" + encodeURIComponent(symbol);
+    const text = await fetchTextNoStore(url);
+    const parsed = parseSinaHqText(text);
+    if (!parsed) return null;
+    return {
+      code,
+      symbol,
+      name: parsed.name,
+      currentPrice: parsed.currentPrice,
+      basePrice: parsed.basePrice,
+      ts: Date.now(),
+      provider: "sina"
+    };
+  }
+
+  const q = (await tryTencent()) || (await tryEastmoney()) || (await trySina());
+  if (q) _quoteCache.set(code, q);
+  return q || null;
 }
 
 const EM_UT = "fa5fd1943c7b386f172d6893dbfba10b";
@@ -1491,6 +1576,32 @@ async function handleApi(req, res, pathname) {
       return true;
     }
     json(res, 200, { knowledge_bases: [{ id: kb.id, name: kb.name }] });
+    return true;
+  }
+
+  if (pathname === "/api/quote" && (req.method === "GET" || req.method === "POST")) {
+    try {
+      let code = "";
+      if (req.method === "GET") {
+        const u = new URL(req.url || "/api/quote", "http://localhost");
+        code = String(u.searchParams.get("code") || "").trim();
+      } else {
+        const body = await readJsonBody(req);
+        code = String(body?.code || "").trim();
+      }
+      if (!/^\d{6}$/.test(code)) {
+        json(res, 400, { error: "缺少或非法 code" });
+        return true;
+      }
+      const q = await fetchQuoteSnapshot(code);
+      if (!q) {
+        json(res, 502, { error: "QUOTE_UNAVAILABLE" });
+        return true;
+      }
+      json(res, 200, { ok: true, quote: q });
+    } catch (e) {
+      json(res, 500, { error: e?.message || "QUOTE_ERROR" });
+    }
     return true;
   }
 

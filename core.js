@@ -292,6 +292,10 @@
 
   /** 腾讯财经公开行情（CORS: *），文档见各开源解析；无效代码返回 v_pv_none_match */
   const QUOTE_URL = "https://qt.gtimg.cn/q=";
+  const QUOTE_TIMEOUT_MS = 4500;
+  const QUOTE_MAX_ATTEMPTS = 2;
+  const QUOTE_CACHE_TTL_MS = 60 * 1000;
+  const _quoteCache = new Map();
 
   /** 接口正文为 GBK；仅用 res.text() 在微信等环境常误判编码导致股票名乱码 */
   function decodeTencentQuoteBody(buffer) {
@@ -322,6 +326,33 @@
     return e;
   }
 
+  async function fetchQuoteObjectViaServer(code) {
+    const symbol = codeToSymbol(code);
+    if (!symbol) throw quoteError("UNSUPPORTED_CODE", "UNSUPPORTED_CODE");
+    const res = await fetchWithTimeout(
+      "/api/quote?code=" + encodeURIComponent(code),
+      { method: "GET", cache: "no-store" },
+      3500
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw quoteError("NETWORK", "NETWORK");
+    const q = data && data.quote ? data.quote : null;
+    if (!q) throw quoteError("BAD_DATA", "BAD_DATA");
+    const currentPrice = Number(q.currentPrice);
+    const basePrice = Number(q.basePrice);
+    const name = String(q.name || "").trim();
+    const base = Number.isFinite(basePrice) && basePrice > 0 ? basePrice : currentPrice;
+    if (!Number.isFinite(currentPrice) || currentPrice <= 0) throw quoteError("BAD_DATA", "BAD_DATA");
+    return {
+      code,
+      symbol,
+      name,
+      basePrice: base,
+      currentPrice,
+      ts: Date.now()
+    };
+  }
+
   /**
    * @returns {Promise<{code:string,symbol:string,name:string,basePrice:number,currentPrice:number,ts:number}>}
    */
@@ -329,41 +360,73 @@
     const symbol = codeToSymbol(code);
     if (!symbol) throw quoteError("UNSUPPORTED_CODE", "UNSUPPORTED_CODE");
 
-    const res = await fetch(QUOTE_URL + encodeURIComponent(symbol), {
-      cache: "no-store"
-    });
-    if (!res.ok) throw quoteError("NETWORK", "NETWORK");
+    const cacheKey = symbol;
+    const cached = _quoteCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < QUOTE_CACHE_TTL_MS) return cached;
 
-    const buf = await res.arrayBuffer();
-    const text = decodeTencentQuoteBody(buf);
-    if (!text || !text.trim()) throw quoteError("NOT_FOUND", "NOT_FOUND");
-    if (/v_pv_none_match/i.test(text)) throw quoteError("NOT_FOUND", "NOT_FOUND");
+    const url = QUOTE_URL + encodeURIComponent(symbol);
+    let lastErrCode = "NETWORK";
+    for (let attempt = 1; attempt <= QUOTE_MAX_ATTEMPTS; attempt++) {
+      try {
+        const res = await fetchWithTimeout(
+          url,
+          {
+            cache: "no-store"
+          },
+          QUOTE_TIMEOUT_MS
+        );
+        if (!res.ok) {
+          lastErrCode = "NETWORK";
+          throw quoteError("NETWORK", "NETWORK");
+        }
 
-    const m = text.match(/v_[a-z0-9]+="([^"]*)"/i);
-    if (!m) throw quoteError("PARSE", "PARSE");
+        const buf = await res.arrayBuffer();
+        const text = decodeTencentQuoteBody(buf);
+        if (!text || !text.trim()) throw quoteError("NOT_FOUND", "NOT_FOUND");
+        if (/v_pv_none_match/i.test(text)) throw quoteError("NOT_FOUND", "NOT_FOUND");
 
-    const parts = m[1].split("~");
-    if (parts.length < 5) throw quoteError("PARSE", "PARSE");
+        const m = text.match(/v_[a-z0-9]+="([^"]*)"/i);
+        if (!m) throw quoteError("PARSE", "PARSE");
 
-    const currentPrice = parseFloat(parts[3]);
-    let basePrice = parseFloat(parts[4]);
+        const parts = m[1].split("~");
+        if (parts.length < 5) throw quoteError("PARSE", "PARSE");
 
-    if (!Number.isFinite(currentPrice) || currentPrice <= 0) {
-      throw quoteError("BAD_DATA", "BAD_DATA");
+        const currentPrice = parseFloat(parts[3]);
+        let basePrice = parseFloat(parts[4]);
+
+        if (!Number.isFinite(currentPrice) || currentPrice <= 0) {
+          throw quoteError("BAD_DATA", "BAD_DATA");
+        }
+        if (!Number.isFinite(basePrice) || basePrice <= 0) {
+          basePrice = currentPrice;
+        }
+
+        const name = (parts[1] || "").trim();
+        const out = {
+          code,
+          symbol,
+          name,
+          basePrice,
+          currentPrice,
+          ts: Date.now()
+        };
+        _quoteCache.set(cacheKey, out);
+        return out;
+      } catch (e) {
+        lastErrCode = e && e.code ? String(e.code) : "NETWORK";
+        if (attempt >= QUOTE_MAX_ATTEMPTS) break;
+        await new Promise((r) => setTimeout(r, 120 * attempt));
+      }
     }
-    if (!Number.isFinite(basePrice) || basePrice <= 0) {
-      basePrice = currentPrice;
-    }
 
-    const name = (parts[1] || "").trim();
-    return {
-      code,
-      symbol,
-      name,
-      basePrice,
-      currentPrice,
-      ts: Date.now()
-    };
+    try {
+      const out = await fetchQuoteObjectViaServer(code);
+      _quoteCache.set(cacheKey, out);
+      return out;
+    } catch {}
+
+    if (cached) return cached;
+    throw quoteError(lastErrCode, lastErrCode);
   }
 
   function mockMetaByCode() {
