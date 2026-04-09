@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>黑金海报生成器</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --bg: #090909;
+      --gold: #d4af37;
+      --gold-soft: #9c7a1b;
+      --text: #f5ecd2;
+    }
+    body {
+      background: radial-gradient(circle at 20% 0%, #1a1510, #090909 45%);
+      color: var(--text);
+      font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    }
+    .card {
+      background: linear-gradient(160deg, rgba(35, 27, 13, 0.95), rgba(14, 12, 10, 0.98));
+      border: 1px solid rgba(212, 175, 55, 0.35);
+      box-shadow: 0 10px 35px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(212, 175, 55, 0.08) inset;
+    }
+    .poster-wrap {
+      width: 360px;
+      height: 640px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 18px;
+      border: 1px solid rgba(212, 175, 55, 0.5);
+      background:
+        radial-gradient(circle at 82% 12%, rgba(212, 175, 55, 0.2), transparent 32%),
+        radial-gradient(circle at 8% 75%, rgba(212, 175, 55, 0.12), transparent 30%),
+        linear-gradient(180deg, #16130f, #0b0a09 60%, #090909);
+    }
+    .gold-line {
+      height: 1px;
+      background: linear-gradient(to right, transparent, rgba(212, 175, 55, 0.9), transparent);
+    }
+    .btn-gold {
+      background: linear-gradient(90deg, #f0cf75, #c69b2f);
+      color: #281d08;
+      font-weight: 700;
+    }
+    .qr-slot {
+      width: 150px;
+      height: 150px;
+      border: 2px dashed rgba(212, 175, 55, 0.7);
+      background: rgba(255, 255, 255, 0.95);
+    }
+  </style>
+</head>
+<body class="min-h-screen px-4 py-6">
+  <div class="max-w-5xl mx-auto grid gap-4 md:grid-cols-[380px_1fr]">
+    <section class="card rounded-2xl p-4">
+      <h1 class="text-lg font-bold text-[#f1d68a]">黑金海报生成器</h1>
+      <p class="text-xs text-[#d8c18b]/90 mt-1">用于快速生成内部测试版宣传海报</p>
+      <div class="gold-line my-3"></div>
+
+      <label class="block text-sm text-[#f1d68a]">海报标题</label>
+      <textarea id="titleInput" rows="3" class="mt-2 w-full rounded-xl bg-black/35 border border-[#d4af37]/35 p-3 text-sm text-[#f8edd0]">《2026 Q2 A股波动率模拟终端 - 内部测试版》</textarea>
+
+      <label class="block text-sm text-[#f1d68a] mt-4">二维码图片（可选）</label>
+      <input id="qrUpload" type="file" accept="image/*" class="mt-2 block w-full text-xs text-[#e8d8a8]" />
+      <p class="text-[11px] text-[#d8c18b]/80 mt-1">不上传时显示占位二维码框。</p>
+
+      <div class="mt-4 flex gap-2">
+        <button id="genBtn" class="btn-gold rounded-lg px-4 py-2 text-sm">生成海报</button>
+        <button id="downloadBtn" class="rounded-lg px-4 py-2 text-sm border border-[#d4af37]/45 text-[#f3dfaa]">下载 PNG</button>
+      </div>
+    </section>
+
+    <section class="card rounded-2xl p-4 flex justify-center">
+      <canvas id="posterCanvas" width="1080" height="1920" class="poster-wrap"></canvas>
+    </section>
+  </div>
+
+  <script>
+    const titleInput = document.getElementById("titleInput");
+    const qrUpload = document.getElementById("qrUpload");
+    const genBtn = document.getElementById("genBtn");
+    const downloadBtn = document.getElementById("downloadBtn");
+    const posterCanvas = document.getElementById("posterCanvas");
+    const ctx = posterCanvas.getContext("2d");
+
+    const posterTitleDefault = "《2026 Q2 A股波动率模拟终端 - 内部测试版》";
+    let qrImg = null;
+
+    function roundedRect(x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+
+    function drawPoster() {
+      const w = posterCanvas.width;
+      const h = posterCanvas.height;
+      const title = (titleInput.value || "").trim() || posterTitleDefault;
+
+      // Background
+      const bg = ctx.createLinearGradient(0, 0, 0, h);
+      bg.addColorStop(0, "#16130f");
+      bg.addColorStop(0.6, "#0d0b09");
+      bg.addColorStop(1, "#090909");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, w, h);
+
+      // Gold glow
+      const glow = ctx.createRadialGradient(w * 0.8, h * 0.15, 20, w * 0.8, h * 0.15, 450);
+      glow.addColorStop(0, "rgba(212,175,55,0.22)");
+      glow.addColorStop(1, "rgba(212,175,55,0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, w, h);
+
+      // Border frame
+      ctx.strokeStyle = "rgba(212,175,55,0.8)";
+      ctx.lineWidth = 4;
+      roundedRect(40, 40, w - 80, h - 80, 24);
+      ctx.stroke();
+
+      ctx.strokeStyle = "rgba(212,175,55,0.35)";
+      ctx.lineWidth = 1;
+      roundedRect(60, 60, w - 120, h - 120, 20);
+      ctx.stroke();
+
+      // Header
+      ctx.fillStyle = "#f2d98f";
+      ctx.font = "bold 52px 'Microsoft YaHei', sans-serif";
+      ctx.fillText("INTERNAL TEST", 96, 190);
+
+      ctx.fillStyle = "rgba(212,175,55,0.85)";
+      ctx.fillRect(96, 220, w - 192, 2);
+
+      // Main title (auto wrap)
+      ctx.fillStyle = "#f6e6bb";
+      ctx.font = "bold 64px 'Microsoft YaHei', sans-serif";
+      const maxWidth = w - 192;
+      const lineHeight = 90;
+      const lines = [];
+      let line = "";
+      for (const ch of title) {
+        const testLine = line + ch;
+        if (ctx.measureText(testLine).width > maxWidth && line) {
+          lines.push(line);
+          line = ch;
+        } else {
+          line = testLine;
+        }
+      }
+      if (line) lines.push(line);
+
+      let y = 360;
+      lines.slice(0, 4).forEach((l) => {
+        ctx.fillText(l, 96, y);
+        y += lineHeight;
+      });
+
+      // Footer text
+      ctx.fillStyle = "rgba(241,214,138,0.95)";
+      ctx.font = "38px 'Microsoft YaHei', sans-serif";
+      ctx.fillText("扫描二维码查看详情", 360, 1530);
+
+      ctx.fillStyle = "rgba(212,175,55,0.75)";
+      ctx.font = "30px 'Microsoft YaHei', sans-serif";
+      ctx.fillText("资金效率 / 策略保护", 385, 1590);
+
+      // QR area
+      const qrSize = 300;
+      const qrX = (w - qrSize) / 2;
+      const qrY = 1160;
+
+      ctx.fillStyle = "rgba(255,255,255,0.98)";
+      roundedRect(qrX - 16, qrY - 16, qrSize + 32, qrSize + 32, 20);
+      ctx.fill();
+
+      if (qrImg) {
+        ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
+      } else {
+        ctx.fillStyle = "#f5f5f5";
+        ctx.fillRect(qrX, qrY, qrSize, qrSize);
+        ctx.strokeStyle = "#8a8a8a";
+        ctx.setLineDash([10, 8]);
+        ctx.strokeRect(qrX + 10, qrY + 10, qrSize - 20, qrSize - 20);
+        ctx.setLineDash([]);
+        ctx.fillStyle = "#444";
+        ctx.font = "28px 'Microsoft YaHei', sans-serif";
+        ctx.fillText("二维码", qrX + 104, qrY + 162);
+      }
+
+      // Bottom tag
+      ctx.fillStyle = "rgba(212,175,55,0.95)";
+      ctx.font = "26px 'Microsoft YaHei', sans-serif";
+      ctx.fillText("2026 Q2 | A-Share Volatility Simulation Terminal", 188, 1820);
+    }
+
+    qrUpload.addEventListener("change", (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          qrImg = img;
+          drawPoster();
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(f);
+    });
+
+    genBtn.addEventListener("click", drawPoster);
+
+    downloadBtn.addEventListener("click", () => {
+      drawPoster();
+      const a = document.createElement("a");
+      a.href = posterCanvas.toDataURL("image/png");
+      a.download = "black-gold-poster.png";
+      a.click();
+    });
+
+    drawPoster();
+  </script>
+</body>
+</html>

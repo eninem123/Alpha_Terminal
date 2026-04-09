@@ -1,0 +1,12 @@
+{
+  "name": "alpha-terminal",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:css": "tailwindcss -i ./tailwind.input.css -o ./tailwind.min.css --minify",
+    "watch:css": "tailwindcss -i ./tailwind.input.css -o ./tailwind.min.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
+  }
+}
