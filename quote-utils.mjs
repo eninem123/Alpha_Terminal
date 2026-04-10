@@ -36,6 +36,34 @@ export function parseTencentQuoteText(text) {
   return { name, currentPrice, basePrice };
 }
 
+/** 解析腾讯财经指数/ETF 行情（支持多代码批量响应），返回数组 */
+export function parseTencentIndexText(text) {
+  const raw = String(text || "");
+  const results = [];
+  const re = /v_([a-z]+)(\d+)="([^"]*)"/gi;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    const symbolFull = (m[1] + m[2]).toLowerCase();
+    const parts = String(m[3] || "").split("~");
+    if (parts.length < 38) continue;
+    const name = String(parts[1] || "").trim();
+    const currentPrice = parseFloat(parts[3]);
+    const basePrice = parseFloat(parts[4]);
+    const changeAmt = parseFloat(parts[31]);   // 涨跌额
+    const changePct = parseFloat(parts[32]);   // 涨跌幅(%)
+    if (!Number.isFinite(currentPrice) || currentPrice <= 0) continue;
+    results.push({
+      symbol: symbolFull,
+      name,
+      currentPrice,
+      basePrice: Number.isFinite(basePrice) && basePrice > 0 ? basePrice : currentPrice,
+      changeAmt: Number.isFinite(changeAmt) ? changeAmt : 0,
+      changePct: Number.isFinite(changePct) ? changePct : 0
+    });
+  }
+  return results;
+}
+
 export function parseSinaHqText(text) {
   const raw = String(text || "");
   if (!raw || !raw.trim()) return null;
