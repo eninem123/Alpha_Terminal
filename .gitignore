@@ -1,27 +1,4 @@
-# 环境变量/密钥
-.env
-.env.*
-*.env
-credentials/
-tokens/
-*.pem
-*.key
-
-# 日志
-*.log
-npm-debug.log*
-
-# 临时文件
-.DS_Store
-*.swp
-*.swo
-*~
-
-# 依赖
-node_modules/
-
-# 微信相关图片（二维码等个人隐私）
-wechat.jpg
-wechat.png
-*.jpg
-!public/*.jpg
+.idea/
+.img/
+# 本地密钥配置（复制 unlock-secret.example.js 为 unlock-secret.js）
+unlock-secret.js

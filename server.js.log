@@ -567,7 +567,7 @@ async function fetchAllAccessibleKbs() {
       "保险", "经济", "资产", "vc", "pe", "量化", "ipo", "并购",
       "重组", "上市", "esg", "etf", "a股", "港股", "美股", "证券"
     ];
-    const candidateKbs = rawList
+    return rawList
       .map(it => ({
         id: String(it?.kb_id || it?.id || "").trim(),
         name: String(it?.kb_name || it?.name || "").trim()
@@ -577,8 +577,6 @@ async function fetchAllAccessibleKbs() {
         const n = it.name.toLowerCase();
         return KEYWORDS.some(k => n.includes(k.toLowerCase()));
       });
-
-    return candidateKbs;
   } catch {
     return [];
   }
@@ -1414,43 +1412,35 @@ async function searchAcrossKbs(kbIds, question) {
       (async () => {
         let picked = [];
         for (let i = 0; i < queries.length; i++) {
-          try {
-            const q = queries[i];
-            const search = await imaApi("openapi/wiki/v1/search_knowledge", {
-              query: q, cursor: "", knowledge_base_id: kbId
-            });
-            const list = firstArrayByPaths(search, [
-              "info_list", "data.info_list", "result.info_list", "data.result.info_list"
-            ]);
-            for (const it of list) {
-              const id = String(it?.media_id || "").trim();
-              if (!id || seen.has(id)) continue;
-              seen.add(id);
-              picked.push(it);
-              if (picked.length >= 6) break;
-            }
-            if (picked.length) break;
-          } catch (e) {
-            // 权限错误或其他 API 错误：跳过该 KB
+          const q = queries[i];
+          const search = await imaApi("openapi/wiki/v1/search_knowledge", {
+            query: q, cursor: "", knowledge_base_id: kbId
+          });
+          const list = firstArrayByPaths(search, [
+            "info_list", "data.info_list", "result.info_list", "data.result.info_list"
+          ]);
+          for (const it of list) {
+            const id = String(it?.media_id || "").trim();
+            if (!id || seen.has(id)) continue;
+            seen.add(id);
+            picked.push(it);
+            if (picked.length >= 6) break;
           }
+          if (picked.length) break;
         }
         if (!picked.length) {
-          try {
-            const listResp = await imaApi("openapi/wiki/v1/get_knowledge_list", {
-              cursor: "", limit: 30, knowledge_base_id: kbId
-            });
-            const kbList = firstArrayByPaths(listResp, [
-              "knowledge_list", "data.knowledge_list", "result.knowledge_list", "data.result.knowledge_list"
-            ]);
-            for (const it of kbList) {
-              const id = String(it?.media_id || "").trim();
-              if (!id || seen.has(id)) continue;
-              seen.add(id);
-              picked.push(it);
-              if (picked.length >= 4) break;
-            }
-          } catch (e) {
-            // 权限错误：跳过
+          const listResp = await imaApi("openapi/wiki/v1/get_knowledge_list", {
+            cursor: "", limit: 30, knowledge_base_id: kbId
+          });
+          const kbList = firstArrayByPaths(listResp, [
+            "knowledge_list", "data.knowledge_list", "result.knowledge_list", "data.result.knowledge_list"
+          ]);
+          for (const it of kbList) {
+            const id = String(it?.media_id || "").trim();
+            if (!id || seen.has(id)) continue;
+            seen.add(id);
+            picked.push(it);
+            if (picked.length >= 4) break;
           }
         }
         return { kbId, sources: picked };
@@ -1859,6 +1849,7 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === "/api/qa/ask" && req.method === "POST") {
+    console.error("[QA] /api/qa/ask request started");
     try {
       const body = await readJsonBody(req);
       let kb = await resolveKnowledgeBaseIdOrError(false);
@@ -1922,9 +1913,15 @@ async function handleApi(req, res, pathname) {
       async function runKbSearch() {
         try {
           if (isMultiKb) {
-            return await searchAcrossKbs(requestedKbIds, question);
+            console.error("[SEARCH] Starting multi-KB search, KBs:", requestedKbIds.length);
+            const r = await searchAcrossKbs(requestedKbIds, question);
+            console.error("[SEARCH] multi-KB done, sources:", r?.sources?.length);
+            return r;
           }
-          return await searchKnowledgeMulti(knowledgeBaseId, question);
+          console.error("[SEARCH] Starting single KB search, KB:", knowledgeBaseId);
+          const r = await searchKnowledgeMulti(knowledgeBaseId, question);
+          console.error("[SEARCH] single KB done, sources:", r?.sources?.length);
+          return r;
         } catch (e0) {
           if (!isMultiKb && e0?.code === "IMA_API_RET_CODE_NOT_ZERO" && e0?.ret_code === 220004) {
             invalidateKbIdCache();
@@ -2002,7 +1999,9 @@ async function handleApi(req, res, pathname) {
       try {
         const mode = adminOk || vipEnhanced ? "full" : serverUsedAfter === 2 || trialIndex === 2 ? "blur" : "full";
         const messages = buildRagMessagesWithMode(questionForModel, sources, mode, vipEnhanced);
+        console.error("[LLM] Calling model with", messages.length, "messages, sources:", sources.length);
         answer = await openAiChatComplete(messages);
+        console.error("[LLM] Model returned, answer len:", answer.length);
         answer = ensureProfessionalSummary(answer);
       } catch (e) {
         answer =
@@ -2027,6 +2026,7 @@ async function handleApi(req, res, pathname) {
         }
       }
 
+      console.error("[QA] Sending response, answer len:", answer.length, "sources:", sources.length);
       json(res, 200, {
         answer,
         sources: sources.slice(0, 8).map(safePublicSource),

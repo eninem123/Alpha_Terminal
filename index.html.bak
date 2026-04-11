@@ -185,22 +185,6 @@
       .profit-path{ transition:none!important; filter:none!important; }
       .scanline::before{ display:none!important; }
     }
-    /* 多选 KB 下拉滚动条 */
-    #kbMultiOptions::-webkit-scrollbar { width: 4px; }
-    #kbMultiOptions::-webkit-scrollbar-track { background: transparent; }
-    #kbMultiOptions::-webkit-scrollbar-thumb { background: #475569; border-radius: 2px; }
-    #kbMultiOptions { scrollbar-width: thin; scrollbar-color: #475569 transparent; }
-    /* 补缺失的 Tailwind 尺寸工具 */
-    .w-4{width:1rem}.h-4{height:1rem}.w-5{width:1.25rem}.h-5{height:1.25rem}
-    .max-h-52{max-height:13rem}.overflow-hidden{overflow:hidden}.overflow-auto{overflow:auto}
-    .truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .cursor-pointer{cursor:pointer}.select-none{user-select:none}
-    .leading-snug{line-height:1.25}.leading-relaxed{line-height:1.625}
-    .accent-blue-500{accent-color:#3b82f6}
-    .bg-\[#1a2332\]{background-color:#1a2332}
-    .hover\:bg-slate-700\/40:hover{background-color:rgba(51,65,85,.4)}
-    .hover\:border-slate-500:hover{border-color:#64748b}
-    .hover\:text-blue-300:hover{color:#a5b4fc}
   </style>
 </head>
 <body class="min-h-screen">
@@ -332,7 +316,7 @@
             type="button"
             class="btn-primary rounded-xl px-4 py-2 text-sm shrink-0 active:scale-[.99] transition"
           >
-            ▶ 展开问答
+            打开问答
           </button>
         </div>
       </section>
@@ -373,46 +357,53 @@
 
   <div
     id="kbQaModal"
-    style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#121821;border-top:1px solid rgba(71,85,105,.4);border-radius:16px 16px 0 0;padding:16px;max-height:85vh;overflow-y:auto;box-shadow:0 -4px 30px rgba(0,0,0,.5)"
+    class="hidden fixed inset-0 z-[65] modal-backdrop flex items-center justify-center px-4"
     role="dialog"
     aria-modal="true"
     aria-label="知识库问答"
   >
-    <!-- 拖动指示条 -->
-    <div style="display:flex;justify-content:center;padding:8px 0 4px">
-      <div style="width:36px;height:4px;background:rgba(71,85,105,.5);border-radius:2px"></div>
-    </div>
-    <div style="width:100%;max-width:600px;margin:0 auto;padding:0 4px 16px">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px">
+    <div class="w-full max-w-md glass-card rounded-2xl p-5 border border-slate-500/30 shadow-2xl">
+      <div class="flex items-center justify-between gap-3">
         <div>
-          <div style="font-size:11px;color:#fcd34d;letter-spacing:.1em">RAG / Q&A</div>
-          <h2 style="font-size:16px;font-weight:700;color:#fff;margin-top:4px">知识库问答</h2>
+          <div class="text-xs tracking-[.14em] text-amber-300/90">RAG / Q&A</div>
+          <h2 class="text-lg font-bold text-white mt-1">知识库问答</h2>
         </div>
         <button
           id="kbQaCloseBtn"
           type="button"
-          style="border-radius:8px;padding:8px 12px;font-size:13px;background:#334155;color:#fff;cursor:pointer;flex-shrink:0"
+          class="rounded-lg px-3 py-2 text-sm bg-slate-700 text-white hover:bg-slate-600 active:scale-[.99] transition"
         >
-          ✕ 收起
+          关闭
         </button>
       </div>
 
       <div class="mt-4 grid grid-cols-1 gap-3">
-        <!-- 多选知识库（直接展示+分页） -->
-        <div style="background:#1a2332;border:1px solid rgba(71,85,105,.4);border-radius:12px;overflow:hidden">
-          <div style="padding:8px 12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(51,65,85,.5)">
-            <div style="display:flex;align-items:center;gap:8px">
-              <span style="font-size:12px;color:#94a3b8">知识库（可多选）</span>
-              <span id="kbMultiCount" style="font-size:11px;color:#60a5fa">已选 0 个</span>
+        <!-- 多选知识库下拉 -->
+        <div class="relative" id="kbMultiWrapper">
+          <button
+            id="kbMultiBtn"
+            type="button"
+            class="w-full flex items-center justify-between gap-2 bg-[#0f141b] border border-slate-600/40 rounded-xl px-3 py-2 text-sm text-left hover:border-slate-500 transition"
+          >
+            <span id="kbMultiLabel" class="text-slate-400 truncate">加载知识库列表中…</span>
+            <svg id="kbMultiChevron" class="w-4 h-4 text-slate-400 shrink-0 transition-transform" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
+            </svg>
+          </button>
+          <div
+            id="kbMultiDropdown"
+            class="hidden absolute z-50 mt-1 w-full bg-[#1a2332] border border-slate-600/40 rounded-xl shadow-xl overflow-hidden"
+          >
+            <div class="px-3 py-2 border-b border-slate-700/50">
+              <span class="text-[11px] text-slate-400">可选多个知识库同时检索</span>
             </div>
-            <div style="display:flex;align-items:center;gap:6px">
-              <button id="kbPrevPageBtn2" type="button" style="background:#334155;border:none;border-radius:6px;padding:2px 8px;color:#94a3b8;cursor:pointer;font-size:11px">‹</button>
-              <span id="kbPageLabel2" style="font-size:11px;color:#64748b;min-width:50px;text-align:center">1/1</span>
-              <button id="kbNextPageBtn2" type="button" style="background:#334155;border:none;border-radius:6px;padding:2px 8px;color:#94a3b8;cursor:pointer;font-size:11px">›</button>
+            <div id="kbMultiOptions" class="max-h-52 overflow-y-auto py-1">
+              <!-- KB checkboxes will be injected here -->
             </div>
-          </div>
-          <div id="kbMultiOptions" style="padding:4px 0;max-height:200px;overflow-y:auto">
-            <!-- KB checkboxes injected here -->
+            <div class="px-3 py-2 border-t border-slate-700/50 flex items-center justify-between">
+              <span class="text-[11px] text-slate-500" id="kbMultiCount">已选 0 个</span>
+              <button id="kbMultiConfirm" type="button" class="text-[11px] text-blue-400 hover:text-blue-300 font-medium">确定</button>
+            </div>
           </div>
         </div>
         <!-- 刷新按钮 -->
@@ -601,9 +592,6 @@
         activateApp();
       });
     })();
-  </script>
-  <script>
-      document.write('<div style="position:fixed;bottom:0;left:0;right:0;text-align:center;padding:6px 0;background:linear-gradient(to top,rgba(0,0,0,0.6) 0%,transparent 100%);pointer-events:none;z-index:9999;"><span style="font-size:11px;color:rgba(255,255,255,0.45);letter-spacing:0.5px;font-family:-apple-system,BlinkMacSystemFont,\'PingFang SC\',\'Microsoft YaHei\',sans-serif;">© 智博优 · Alpha_Terminal 智能终端系统 V1.0</span></div>');
   </script>
 </body>
 </html>

@@ -222,11 +222,13 @@
   const kbQaOpenBtn = document.getElementById("kbQaOpenBtn");
   const kbQaModal = document.getElementById("kbQaModal");
   const kbQaCloseBtn = document.getElementById("kbQaCloseBtn");
+  const kbMultiWrapper = document.getElementById("kbMultiWrapper");
+  const kbMultiBtn = document.getElementById("kbMultiBtn");
+  const kbMultiLabel = document.getElementById("kbMultiLabel");
+  const kbMultiDropdown = document.getElementById("kbMultiDropdown");
   const kbMultiOptions = document.getElementById("kbMultiOptions");
   const kbMultiCount = document.getElementById("kbMultiCount");
-  const kbPrevPageBtn2 = document.getElementById("kbPrevPageBtn2");
-  const kbNextPageBtn2 = document.getElementById("kbNextPageBtn2");
-  const kbPageLabel2 = document.getElementById("kbPageLabel2");
+  const kbMultiConfirm = document.getElementById("kbMultiConfirm");
   const kbRefreshBtn = document.getElementById("kbRefreshBtn");
   const kbQuestion = document.getElementById("kbQuestion");
   const kbAskBtn = document.getElementById("kbAskBtn");
@@ -974,17 +976,11 @@
   function openKbQaModal() {
     if (!kbQaModal) return;
     kbQaModal.classList.remove("hidden");
-    kbQaModal.style.display = "block";
-    if (kbQaOpenBtn) kbQaOpenBtn.textContent = "▼ 收起问答";
-    // Auto-fetch KB list if not loaded yet
-    if (_kbListData && !_kbListData.length) fetchKbList();
   }
 
   function closeKbQaModal() {
     if (!kbQaModal) return;
     kbQaModal.classList.add("hidden");
-    kbQaModal.style.display = "none";
-    if (kbQaOpenBtn) kbQaOpenBtn.textContent = "▶ 展开问答";
   }
 
   function stripHtmlToText(s) {
@@ -1012,32 +1008,32 @@
     return await fetch(url, options || {});
   }
 
-  // 分页状态
-  let _kbPage = 0;
-  const _kbPageSize = 5;
-
-  // 更新 KB 已选计数 + 分页标签
+  // 更新多选 KB 按钮标签和计数
   function updateKbMultiLabel() {
     const selected = Array.from(_selectedKbIds);
+    if (selected.length === 0) {
+      kbMultiLabel.textContent = "请选择知识库（可多选）…";
+      kbMultiLabel.className = "text-slate-400 truncate";
+    } else if (selected.length === 1) {
+      const kb = _kbListData.find(k => k.id === selected[0]);
+      kbMultiLabel.textContent = "已选：" + (kb ? kb.name : selected[0]);
+      kbMultiLabel.className = "text-white truncate";
+    } else {
+      kbMultiLabel.textContent = `已选 ${selected.length} 个知识库`;
+      kbMultiLabel.className = "text-blue-400 truncate";
+    }
     if (kbMultiCount) kbMultiCount.textContent = "已选 " + selected.length + " 个";
-    const totalPages = Math.max(1, Math.ceil((_kbListData.length || 1) / _kbPageSize));
-    if (kbPageLabel2) kbPageLabel2.textContent = `${_kbPage + 1}/${totalPages}`;
-    if (kbPrevPageBtn2) kbPrevPageBtn2.disabled = _kbPage <= 0;
-    if (kbNextPageBtn2) kbNextPageBtn2.disabled = _kbPage >= totalPages - 1;
   }
 
-  // 渲染当前页 KB 选项
-  function renderKbPage() {
+  // 渲染 KB 下拉选项（checkboxes）
+  function renderKbOptions(list) {
     if (!kbMultiOptions) return;
     kbMultiOptions.innerHTML = "";
-    const list = _kbListData || [];
     if (!list.length) {
-      kbMultiOptions.innerHTML = '<div style="padding:12px;font-size:13px;color:#64748b">未获取到知识库</div>';
+      kbMultiOptions.innerHTML = '<div class="px-3 py-2 text-sm text-slate-500">未获取到知识库</div>';
       return;
     }
-    const start = _kbPage * _kbPageSize;
-    const pageItems = list.slice(start, start + _kbPageSize);
-    pageItems.forEach(kb => {
+    list.forEach(kb => {
       const div = document.createElement("label");
       div.style.cssText = "display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;color:#fff";
       div.onmouseover = () => { div.style.background = "rgba(51,65,85,.4)" };
@@ -1055,14 +1051,6 @@
       });
       kbMultiOptions.appendChild(div);
     });
-    updateKbMultiLabel();
-  }
-
-  // 渲染 KB 列表（重置到第一页）
-  function renderKbOptions(list) {
-    _kbListData = Array.isArray(list) ? list : [];
-    _kbPage = 0;
-    renderKbPage();
   }
 
   async function fetchKbList() {
@@ -1084,24 +1072,40 @@
       setKbQaStatus(list.length ? "知识库列表已更新（共 " + list.length + " 个相关知识库）。" : "没有可用的知识库。");
     } catch (e) {
       const msg = String(e && e.message ? e.message : "").trim();
-      if (kbMultiOptions) kbMultiOptions.innerHTML = '<div style="padding:8px 12px;font-size:13px;color:#f87171">加载失败</div>';
-      if (kbMultiOptions) kbMultiOptions.innerHTML = '<div style="padding:8px 12px;font-size:13px;color:#f87171">加载失败，请刷新</div>';
+      if (kbMultiOptions) kbMultiOptions.innerHTML = '<div class="px-3 py-2 text-sm text-red-400">加载失败</div>';
+      kbMultiLabel.textContent = "加载失败，请刷新";
       setKbQaStatus(msg && msg !== "BAD_STATUS" && msg !== "AbortError" ? "问答服务错误：" + msg : "问答服务未响应，请稍后重试。");
     }
   }
 
-  // KB 分页按钮
-  if (kbPrevPageBtn2) {
-    kbPrevPageBtn2.addEventListener("click", () => {
-      if (_kbPage > 0) { _kbPage--; renderKbPage(); }
+  // 多选下拉展开/收起
+  if (kbMultiBtn) {
+    kbMultiBtn.addEventListener("click", () => {
+      const isHidden = kbMultiDropdown && kbMultiDropdown.classList.contains("hidden");
+      if (isHidden) {
+        kbMultiDropdown.classList.remove("hidden");
+        document.getElementById("kbMultiChevron").style.transform = "rotate(180deg)";
+      } else {
+        kbMultiDropdown.classList.add("hidden");
+        document.getElementById("kbMultiChevron").style.transform = "";
+      }
     });
   }
-  if (kbNextPageBtn2) {
-    kbNextPageBtn2.addEventListener("click", () => {
-      const totalPages = Math.ceil((_kbListData.length || 1) / _kbPageSize);
-      if (_kbPage < totalPages - 1) { _kbPage++; renderKbPage(); }
+  if (kbMultiConfirm) {
+    kbMultiConfirm.addEventListener("click", () => {
+      kbMultiDropdown.classList.add("hidden");
+      document.getElementById("kbMultiChevron").style.transform = "";
+      updateKbMultiLabel();
     });
   }
+  // 点击外部关闭
+  document.addEventListener("click", e => {
+    if (kbMultiWrapper && !kbMultiWrapper.contains(e.target)) {
+      kbMultiDropdown && kbMultiDropdown.classList.add("hidden");
+      const chevron = document.getElementById("kbMultiChevron");
+      if (chevron) chevron.style.transform = "";
+    }
+  });
 
   async function askKbQuestion() {
     if (!kbQuestion) return;
@@ -1128,11 +1132,11 @@
     const isMulti = selectedIds.length > 1;
     if (kbAskBtn) {
       kbAskBtn.disabled = true;
-      kbAskBtn.textContent = isMulti ? "多库检索+生成中…" : "检索+生成中…";
+      kbAskBtn.textContent = isMulti ? "多库检索中…" : "检索中…";
     }
     setKbQaAnswer("");
     setKbQaSources([]);
-    setKbQaStatus("正在检索知识库 + 生成回答（DeepSeek模型响应需要10-40秒，请耐心等待）…");
+    setKbQaStatus("正在检索并生成回答…");
 
     try {
       if (!effectiveVipUnlimited && vipKey && !effectiveUsageBypass && _kbqa_limit >= MAX_KB_QA_TRIES) {
