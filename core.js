@@ -1324,7 +1324,7 @@
   }
 
   function init() {
-    console.log("[DEBUG] init called, effectiveUsageBypass=" + effectiveUsageBypass + ", _u_limit=" + _u_limit);
+    console.log("[DEBUG] init called, effectiveUsageBypass=" + effectiveUsageBypass + ", _u_limit=" + _u_limit + ", cookie=" + document.cookie);
     
     // 立即检查localStorage管理员状态并解锁（不等待网络请求）
     const localAdminAuthed = isAdminAuthed();
