@@ -26,11 +26,22 @@
     return true;
   }
 
+    // 获取微信WebView兼容的cookie
+  function getAdminCookie() {
+    const match = document.cookie.match(/(?:^|;)\s*_admin_c=([^;]*)/);
+    return match ? match[1] : null;
+  }
+
   function isAdminAuthed() {
     try {
-      const val = localStorage.getItem("_admin_authed");
-      console.log("[DEBUG] isAdminAuthed, _admin_authed=" + val);
-      return val === "1";
+      // 先检查localStorage
+      const lsVal = localStorage.getItem("_admin_authed");
+      console.log("[DEBUG] isAdminAuthed, localStorage=" + lsVal);
+      if (lsVal === "1") return true;
+      // 再检查cookie（微信WebView备选）
+      const ckVal = getAdminCookie();
+      console.log("[DEBUG] isAdminAuthed, cookie=" + ckVal);
+      return ckVal === "1";
     } catch {
       console.log("[DEBUG] isAdminAuthed, exception");
       return false;
@@ -1313,7 +1324,7 @@
   }
 
   function init() {
-    console.log("[DEBUG] init called, effectiveUsageBypass=" + effectiveUsageBypass + ", _u_limit=" + _u_limit);
+    console.log("[DEBUG] init called, effectiveUsageBypass=" + effectiveUsageBypass + ", _u_limit=" + _u_limit + ", cookie=" + document.cookie);
     
     // 立即检查localStorage管理员状态并解锁（不等待网络请求）
     const localAdminAuthed = isAdminAuthed();
@@ -1455,6 +1466,8 @@
           }
           try {
             localStorage.setItem("_admin_authed", "1");
+            // 设置cookie作为微信备选（有效期1年）
+            document.cookie = "_admin_c=1; path=/; max-age=31536000";
           } catch {}
           if (adminStatus) adminStatus.textContent = "已登录，已解锁不限次。";
           setTimeout(function () {
