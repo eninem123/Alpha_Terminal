@@ -560,12 +560,25 @@ async function fetchAllAccessibleKbs() {
       limit: 50
     });
     const rawList = resp?.data?.info_list || resp?.info_list || [];
-    return rawList
+    // 关键词过滤：只保留投资/财经/理财/财富管理相关知识库
+    const KEYWORDS = [
+      "理财", "投资", "财经", "金融", "股票", "基金", "债券", "信托",
+      "财务", "会计", "审计", "税务", "税务", "财富", "资本", "证券",
+      "保险", "经济", "资产", "vc", "pe", "量化", "ipo", "并购",
+      "重组", "上市", "esg", "etf", "a股", "港股", "美股", "证券"
+    ];
+    const candidateKbs = rawList
       .map(it => ({
         id: String(it?.kb_id || it?.id || "").trim(),
         name: String(it?.kb_name || it?.name || "").trim()
       }))
-      .filter(it => it.id);
+      .filter(it => {
+        if (!it.id || !it.name) return false;
+        const n = it.name.toLowerCase();
+        return KEYWORDS.some(k => n.includes(k.toLowerCase()));
+      });
+
+    return candidateKbs;
   } catch {
     return [];
   }
@@ -1385,6 +1398,78 @@ function firstArrayByPaths(obj, paths) {
   return [];
 }
 
+/**
+ * 并行搜索多个知识库，聚合去重结果。
+ * @param {string[]} kbIds - 知识库 ID 数组
+ * @param {string} question - 搜索问题
+ * @returns {Promise<{sources: object[], mode: string, queries: string[]}>}
+ */
+async function searchAcrossKbs(kbIds, question) {
+  if (!kbIds || kbIds.length === 0) return { sources: [], mode: "multi_kb", queries: [], kbNames: [] };
+  const queries = buildSearchQueries(question);
+  const seen = new Set();
+  const allSources = [];
+  const results = await Promise.allSettled(
+    kbIds.map(kbId =>
+      (async () => {
+        let picked = [];
+        for (let i = 0; i < queries.length; i++) {
+          try {
+            const q = queries[i];
+            const search = await imaApi("openapi/wiki/v1/search_knowledge", {
+              query: q, cursor: "", knowledge_base_id: kbId
+            });
+            const list = firstArrayByPaths(search, [
+              "info_list", "data.info_list", "result.info_list", "data.result.info_list"
+            ]);
+            for (const it of list) {
+              const id = String(it?.media_id || "").trim();
+              if (!id || seen.has(id)) continue;
+              seen.add(id);
+              picked.push(it);
+              if (picked.length >= 6) break;
+            }
+            if (picked.length) break;
+          } catch (e) {
+            // 权限错误或其他 API 错误：跳过该 KB
+          }
+        }
+        if (!picked.length) {
+          try {
+            const listResp = await imaApi("openapi/wiki/v1/get_knowledge_list", {
+              cursor: "", limit: 30, knowledge_base_id: kbId
+            });
+            const kbList = firstArrayByPaths(listResp, [
+              "knowledge_list", "data.knowledge_list", "result.knowledge_list", "data.result.knowledge_list"
+            ]);
+            for (const it of kbList) {
+              const id = String(it?.media_id || "").trim();
+              if (!id || seen.has(id)) continue;
+              seen.add(id);
+              picked.push(it);
+              if (picked.length >= 4) break;
+            }
+          } catch (e) {
+            // 权限错误：跳过
+          }
+        }
+        return { kbId, sources: picked };
+      })()
+    )
+  );
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value?.sources) {
+      allSources.push(...r.value.sources);
+    }
+  }
+  return {
+    sources: allSources.slice(0, 12),
+    mode: "multi_kb",
+    queries,
+    kbNames: kbIds
+  };
+}
+
 async function searchKnowledgeMulti(knowledgeBaseId, question) {
   const queries = buildSearchQueries(question);
   const picked = [];
@@ -1782,16 +1867,24 @@ async function handleApi(req, res, pathname) {
         return true;
       }
 
+      // 支持多 KB 搜索：knowledge_base_ids (array) 或 legacy knowledge_base_id (string)
       const requestedKbId = String(body?.knowledge_base_id || "").trim();
-      // 动态 KB：若传了 requestedKbId 则优先使用（resolveKbById 已做 allowed 校验）
-      if (requestedKbId) {
+      const requestedKbIds = Array.isArray(body?.knowledge_base_ids)
+        ? body.knowledge_base_ids.map(id => String(id || "").trim()).filter(Boolean)
+        : [];
+      const isMultiKb = requestedKbIds.length > 1;
+
+      // 动态 KB：若传了 requestedKbId 或 requestedKbIds 则优先使用
+      if (isMultiKb) {
+        // 多 KB 模式：跳过单 KB 校验，直接使用
+      } else if (requestedKbId) {
         kb = await resolveKnowledgeBaseIdOrError(false, requestedKbId);
         if (!kb.ok) {
           json(res, 400, { error: kb.error });
           return true;
         }
       }
-      const knowledgeBaseId = kb.id;
+      const knowledgeBaseId = isMultiKb ? requestedKbIds[0] : kb.id;
       const question = String(body?.question || "").trim();
       if (!question) {
         json(res, 400, { error: "缺少 question" });
@@ -1828,9 +1921,12 @@ async function handleApi(req, res, pathname) {
 
       async function runKbSearch() {
         try {
+          if (isMultiKb) {
+            return await searchAcrossKbs(requestedKbIds, question);
+          }
           return await searchKnowledgeMulti(knowledgeBaseId, question);
         } catch (e0) {
-          if (e0?.code === "IMA_API_RET_CODE_NOT_ZERO" && e0?.ret_code === 220004) {
+          if (!isMultiKb && e0?.code === "IMA_API_RET_CODE_NOT_ZERO" && e0?.ret_code === 220004) {
             invalidateKbIdCache();
             kb = await resolveKnowledgeBaseIdOrError(true);
             if (!kb.ok) throw e0;
@@ -1917,6 +2013,19 @@ async function handleApi(req, res, pathname) {
       }
 
       answer = KB_QA_RISK_PREFIX + String(answer || "").trim();
+      // 多 KB 整合结果字数控制（500-800 字），保留完整性优先
+      if (isMultiKb) {
+        const rawLen = answer.replace(/[\n\r]/g, "").length;
+        if (rawLen > 800) {
+          answer = trimToChars(answer, 750); // 截断到 750 字左右
+          if (!answer.endsWith("。") && !answer.endsWith("！") && !answer.endsWith("？")) {
+            // 尽量在最后一个句号断句
+            const lastPunct = Math.max(answer.lastIndexOf("。"), answer.lastIndexOf("！"), answer.lastIndexOf("？"));
+            if (lastPunct > 400) answer = answer.slice(0, lastPunct + 1);
+          }
+          answer = answer.trimEnd() + "\n\n（以上内容整合自多个知识源，完整分析请参考下方参考来源）";
+        }
+      }
 
       json(res, 200, {
         answer,

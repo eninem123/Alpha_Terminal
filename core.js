@@ -28,8 +28,11 @@
 
   function isAdminAuthed() {
     try {
-      return localStorage.getItem("_admin_authed") === "1";
+      const val = localStorage.getItem("_admin_authed");
+      console.log("[DEBUG] isAdminAuthed, _admin_authed=" + val);
+      return val === "1";
     } catch {
+      console.log("[DEBUG] isAdminAuthed, exception");
       return false;
     }
   }
@@ -47,12 +50,18 @@
 
   function applyAdminAuthState(authed) {
     const ok = authed === true;
+    const localAdminAuthed = isAdminAuthed(); // 从localStorage读取
+    console.log("[DEBUG] applyAdminAuthState called, auth=" + auth + ", localAdminAuthed=" + localAdminAuthed);
     try {
+      // 只有服务器确认authed=true时才更新localStorage
+      // 如果服务器返回false，不清除localStorage（保留微信WebView的fallback）
       if (ok) localStorage.setItem("_admin_authed", "1");
-      else localStorage.removeItem("_admin_authed");
+      // else localStorage.removeItem("_admin_authed"); // 注释掉，避免清除备选状态
     } catch {}
-    effectiveUsageBypass = localUsageBypass || ok;
-    effectiveVipUnlimited = localVipUnlimited || ok;
+    // 关键：effectiveUsageBypass应该同时考虑localStorage的fallback状态
+    effectiveUsageBypass = localUsageBypass || localAdminAuthed;
+    effectiveVipUnlimited = localVipUnlimited || localAdminAuthed;
+    console.log("[DEBUG] effectiveUsageBypass=" + effectiveUsageBypass + ", localVipUnlimited=" + effectiveVipUnlimited);
     updateTriesLeftUI();
     updateKbQuotaUI();
   }
@@ -222,7 +231,11 @@
   const kbQaOpenBtn = document.getElementById("kbQaOpenBtn");
   const kbQaModal = document.getElementById("kbQaModal");
   const kbQaCloseBtn = document.getElementById("kbQaCloseBtn");
-  const kbSelect = document.getElementById("kbSelect");
+  const kbMultiOptions = document.getElementById("kbMultiOptions");
+  const kbMultiCount = document.getElementById("kbMultiCount");
+  const kbPrevPageBtn2 = document.getElementById("kbPrevPageBtn2");
+  const kbNextPageBtn2 = document.getElementById("kbNextPageBtn2");
+  const kbPageLabel2 = document.getElementById("kbPageLabel2");
   const kbRefreshBtn = document.getElementById("kbRefreshBtn");
   const kbQuestion = document.getElementById("kbQuestion");
   const kbAskBtn = document.getElementById("kbAskBtn");
@@ -233,6 +246,10 @@
   const kbAnswer = document.getElementById("kbAnswer");
   const kbPrevPageBtn = document.getElementById("kbPrevPageBtn");
   const kbNextPageBtn = document.getElementById("kbNextPageBtn");
+
+  // 多选 KB 状态
+  let _kbListData = [];         // { id, name }
+  let _selectedKbIds = new Set(); // 当前选中的 KB ID 集合
   const kbPageLabel = document.getElementById("kbPageLabel");
   const kbSources = document.getElementById("kbSources");
 
@@ -966,11 +983,17 @@
   function openKbQaModal() {
     if (!kbQaModal) return;
     kbQaModal.classList.remove("hidden");
+    kbQaModal.style.display = "block";
+    if (kbQaOpenBtn) kbQaOpenBtn.textContent = "▼ 收起问答";
+    // Auto-fetch KB list if not loaded yet
+    if (_kbListData && !_kbListData.length) fetchKbList();
   }
 
   function closeKbQaModal() {
     if (!kbQaModal) return;
     kbQaModal.classList.add("hidden");
+    kbQaModal.style.display = "none";
+    if (kbQaOpenBtn) kbQaOpenBtn.textContent = "▶ 展开问答";
   }
 
   function stripHtmlToText(s) {
@@ -998,14 +1021,60 @@
     return await fetch(url, options || {});
   }
 
-  async function fetchKbList() {
-    if (!kbSelect) return;
-    kbSelect.innerHTML = "";
-    const opt = document.createElement("option");
-    opt.value = "";
-    opt.textContent = "加载中…";
-    kbSelect.appendChild(opt);
+  // 分页状态
+  let _kbPage = 0;
+  const _kbPageSize = 5;
 
+  // 更新 KB 已选计数 + 分页标签
+  function updateKbMultiLabel() {
+    const selected = Array.from(_selectedKbIds);
+    if (kbMultiCount) kbMultiCount.textContent = "已选 " + selected.length + " 个";
+    const totalPages = Math.max(1, Math.ceil((_kbListData.length || 1) / _kbPageSize));
+    if (kbPageLabel2) kbPageLabel2.textContent = `${_kbPage + 1}/${totalPages}`;
+    if (kbPrevPageBtn2) kbPrevPageBtn2.disabled = _kbPage <= 0;
+    if (kbNextPageBtn2) kbNextPageBtn2.disabled = _kbPage >= totalPages - 1;
+  }
+
+  // 渲染当前页 KB 选项
+  function renderKbPage() {
+    if (!kbMultiOptions) return;
+    kbMultiOptions.innerHTML = "";
+    const list = _kbListData || [];
+    if (!list.length) {
+      kbMultiOptions.innerHTML = '<div style="padding:12px;font-size:13px;color:#64748b">未获取到知识库</div>';
+      return;
+    }
+    const start = _kbPage * _kbPageSize;
+    const pageItems = list.slice(start, start + _kbPageSize);
+    pageItems.forEach(kb => {
+      const div = document.createElement("label");
+      div.style.cssText = "display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;color:#fff";
+      div.onmouseover = () => { div.style.background = "rgba(51,65,85,.4)" };
+      div.onmouseout = () => { div.style.background = "" };
+      const checked = _selectedKbIds.has(kb.id);
+      div.innerHTML = `
+        <input type="checkbox" value="${kb.id}" style="accent-color:#3b82f6;flex-shrink:0" ${checked ? "checked" : ""} />
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:1.25">${kb.name}</span>
+      `;
+      const cb = div.querySelector("input");
+      cb.addEventListener("change", () => {
+        if (cb.checked) _selectedKbIds.add(kb.id);
+        else _selectedKbIds.delete(kb.id);
+        updateKbMultiLabel();
+      });
+      kbMultiOptions.appendChild(div);
+    });
+    updateKbMultiLabel();
+  }
+
+  // 渲染 KB 列表（重置到第一页）
+  function renderKbOptions(list) {
+    _kbListData = Array.isArray(list) ? list : [];
+    _kbPage = 0;
+    renderKbPage();
+  }
+
+  async function fetchKbList() {
     try {
       setKbQaStatus("正在拉取知识库列表…");
       const res = await fetchWithTimeout("/api/kb/list", {
@@ -1014,48 +1083,39 @@
         body: JSON.stringify({})
       }, 60000);
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const msg = String((data && data.error) || ("HTTP_" + String(res.status)));
-        throw new Error(msg);
-      }
+      if (!res.ok) throw new Error(String((data && data.error) || ("HTTP_" + String(res.status))));
       const list = Array.isArray(data.knowledge_bases) ? data.knowledge_bases : [];
-      kbSelect.innerHTML = "";
-      const first = document.createElement("option");
-      first.value = "";
-      first.textContent = list.length ? "请选择知识库…" : "未获取到知识库";
-      kbSelect.appendChild(first);
-      for (let i = 0; i < list.length; i++) {
-        const kb = list[i] || {};
-        const o = document.createElement("option");
-        o.value = String(kb.id || "");
-        o.textContent = String(kb.name || kb.id || "").trim();
-        kbSelect.appendChild(o);
-      }
-      if (list.length === 1) {
-        kbSelect.value = String(list[0].id || "");
-        setKbQaStatus("已选择知识库：" + String(list[0].name || list[0].id || "").trim());
-      } else {
-      setKbQaStatus(list.length ? "知识库列表已更新。" : "没有可用的知识库。");
-      }
+      _kbListData = list;
+      _selectedKbIds = new Set();
+      if (list.length === 1) _selectedKbIds.add(list[0].id);
+      renderKbOptions(list);
+      updateKbMultiLabel();
+      setKbQaStatus(list.length ? "知识库列表已更新（共 " + list.length + " 个相关知识库）。" : "没有可用的知识库。");
     } catch (e) {
-      kbSelect.innerHTML = "";
-      const o = document.createElement("option");
-      o.value = "";
-      o.textContent = "无法连接问答服务";
-      kbSelect.appendChild(o);
       const msg = String(e && e.message ? e.message : "").trim();
-      if (msg && msg !== "BAD_STATUS" && msg !== "AbortError") {
-        setKbQaStatus("问答服务错误：" + msg);
-      } else {
-        setKbQaStatus("问答服务未响应，请稍后重试或联系高级顾问。");
-      }
+      if (kbMultiOptions) kbMultiOptions.innerHTML = '<div style="padding:8px 12px;font-size:13px;color:#f87171">加载失败</div>';
+      if (kbMultiOptions) kbMultiOptions.innerHTML = '<div style="padding:8px 12px;font-size:13px;color:#f87171">加载失败，请刷新</div>';
+      setKbQaStatus(msg && msg !== "BAD_STATUS" && msg !== "AbortError" ? "问答服务错误：" + msg : "问答服务未响应，请稍后重试。");
     }
   }
 
+  // KB 分页按钮
+  if (kbPrevPageBtn2) {
+    kbPrevPageBtn2.addEventListener("click", () => {
+      if (_kbPage > 0) { _kbPage--; renderKbPage(); }
+    });
+  }
+  if (kbNextPageBtn2) {
+    kbNextPageBtn2.addEventListener("click", () => {
+      const totalPages = Math.ceil((_kbListData.length || 1) / _kbPageSize);
+      if (_kbPage < totalPages - 1) { _kbPage++; renderKbPage(); }
+    });
+  }
+
   async function askKbQuestion() {
-    if (!kbQuestion || !kbSelect) return;
+    if (!kbQuestion) return;
     await syncAdminAuthStatus();
-    const kbId = (kbSelect.value || "").trim();
+    const selectedIds = Array.from(_selectedKbIds);
     const q = (kbQuestion.value || "").trim();
     const vipKey = kbVipKey ? String(kbVipKey.value || "").trim() : "";
     const hasVip = Boolean(vipKey) || effectiveVipUnlimited;
@@ -1065,8 +1125,8 @@
       updateKbQuotaUI();
       return;
     }
-    if (!kbId) {
-      setKbQaStatus("请先选择知识库。");
+    if (!selectedIds.length) {
+      setKbQaStatus("请先选择至少一个知识库。");
       return;
     }
     if (!q) {
@@ -1074,13 +1134,14 @@
       return;
     }
 
+    const isMulti = selectedIds.length > 1;
     if (kbAskBtn) {
       kbAskBtn.disabled = true;
-      kbAskBtn.textContent = "检索中…";
+      kbAskBtn.textContent = isMulti ? "多库检索+生成中…" : "检索+生成中…";
     }
     setKbQaAnswer("");
     setKbQaSources([]);
-    setKbQaStatus("正在检索并生成回答…");
+    setKbQaStatus("正在检索知识库 + 生成回答（DeepSeek模型响应需要10-40秒，请耐心等待）…");
 
     try {
       if (!effectiveVipUnlimited && vipKey && !effectiveUsageBypass && _kbqa_limit >= MAX_KB_QA_TRIES) {
@@ -1101,7 +1162,8 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          knowledge_base_id: kbId,
+          knowledge_base_ids: isMulti ? selectedIds : undefined,
+          knowledge_base_id: !isMulti ? selectedIds[0] : undefined,
           question: q,
           trial_index: effectiveUsageBypass || effectiveVipUnlimited ? 0 : _kbqa_limit + 1,
           vip_key: vipKey,
@@ -1132,7 +1194,8 @@
           snippet: stripHtmlToText(x.highlight_content || x.snippet || "")
         }))
       );
-      setKbQaStatus("完成。");
+      const srcNote = data.retrieval?.mode === "multi_kb" ? "（内容来自多知识源整合）" : "";
+      setKbQaStatus("完成。" + srcNote);
     } catch (e) {
       const name = String(e && e.name ? e.name : "");
       const msg = String(e && e.message ? e.message : "").trim();
@@ -1176,7 +1239,7 @@
       return;
     }
 
-    if (!localUsageBypass) {
+    if (!effectiveUsageBypass) {
       if (_u_limit > MAX_FREE_TRIES) {
         setLockedState();
         return;
@@ -1198,7 +1261,7 @@
       const b64Packet = await fetchStockData(code);
       const data = b64DecodeJson(b64Packet);
 
-      if (!localUsageBypass) {
+      if (!effectiveUsageBypass) {
         _u_limit += 1;
         localStorage.setItem(STORAGE_KEY, String(_u_limit));
         updateTriesLeftUI();
@@ -1250,20 +1313,28 @@
   }
 
   function init() {
+    console.log("[DEBUG] init called, effectiveUsageBypass=" + effectiveUsageBypass + ", _u_limit=" + _u_limit);
+    
+    // 立即检查localStorage管理员状态并解锁（不等待网络请求）
+    const localAdminAuthed = isAdminAuthed();
+    if (localAdminAuthed) {
+      console.log("[DEBUG] localStorage admin detected, unlocking immediately");
+      unlockState();
+    } else if (_u_limit > MAX_FREE_TRIES) {
+      console.log("[DEBUG] no admin, _u_limit exceeded, locking");
+      setLockedState();
+    }
+    
+    // 异步同步服务器状态（不阻塞UI）
     syncAdminAuthStatus()
       .then(() => {
+        console.log("[DEBUG] syncAdminAuthStatus done, effectiveUsageBypass=" + effectiveUsageBypass);
         if (effectiveUsageBypass) unlockState();
         else if (_u_limit > MAX_FREE_TRIES) setLockedState();
       })
       .catch(() => {});
 
     updateTriesLeftUI();
-
-    if (effectiveUsageBypass) {
-      unlockState();
-    } else if (_u_limit > MAX_FREE_TRIES) {
-      setLockedState();
-    }
 
     queryBtn.addEventListener("click", runQuery);
 

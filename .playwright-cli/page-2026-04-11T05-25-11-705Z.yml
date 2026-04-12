@@ -1,0 +1,7 @@
+- generic [active]:
+  - generic:
+    - generic [ref=e2]:
+      - heading "使用前说明" [level=2] [ref=e3]
+      - paragraph [ref=e4]: 本页面仅用于技术演示与数据分析，不构成任何建议。请确保您的使用符合当地法律法规与平台规则。
+      - button "合规声明" [ref=e5]
+    - text: 杠杆 杠杆
