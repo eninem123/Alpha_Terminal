@@ -92,9 +92,6 @@ const HOST =
 const KB_QA_MAX = Math.max(0, Number(readEnvTrim("KB_QA_MAX") || 2));
 const KB_QA_WINDOW_MS = 24 * 60 * 60 * 1000;
 const _kbQaQuota = new Map();
-// 搜索缓存：key格式为 "kbId:query"，value为搜索结果，缓存5分钟
-const _searchCache = new Map();
-const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
 const KB_QA_RISK_PREFIX =
   "⚠️ 风险提示：以下内容仅为市场信息整理与板块逻辑分析，不构成任何投资建议。股市有风险，投资需谨慎。\n\n";
 
@@ -563,37 +560,23 @@ async function fetchAllAccessibleKbs() {
       limit: 50
     });
     const rawList = resp?.data?.info_list || resp?.info_list || [];
-    // 关键词过滤：放宽范围，包含更多类型的知识库
+    // 关键词过滤：只保留投资/财经/理财/财富管理相关知识库
     const KEYWORDS = [
       "理财", "投资", "财经", "金融", "股票", "基金", "债券", "信托",
-      "财务", "会计", "审计", "税务", "财富", "资本", "证券",
+      "财务", "会计", "审计", "税务", "税务", "财富", "资本", "证券",
       "保险", "经济", "资产", "vc", "pe", "量化", "ipo", "并购",
-      "重组", "上市", "esg", "etf", "a股", "港股", "美股",
-      "技术", "开发", "编程", "代码", "软件", "硬件", "ai", "人工智能",
-      "数据", "分析", "市场", "营销", "管理", "创业", "商业", "公司",
-      "法律", "法规", "政策", "政府", "医疗", "健康", "教育", "学习"
+      "重组", "上市", "esg", "etf", "a股", "港股", "美股", "证券"
     ];
-    
-    // 先尝试获取所有知识库
-    let candidateKbs = rawList
+    const candidateKbs = rawList
       .map(it => ({
         id: String(it?.kb_id || it?.id || "").trim(),
         name: String(it?.kb_name || it?.name || "").trim()
       }))
-      .filter(it => it.id && it.name);
-    
-    // 如果没有匹配到任何关键词，返回所有知识库（避免空列表）
-    if (candidateKbs.length > 0) {
-      const filteredKbs = candidateKbs.filter(it => {
+      .filter(it => {
+        if (!it.id || !it.name) return false;
         const n = it.name.toLowerCase();
         return KEYWORDS.some(k => n.includes(k.toLowerCase()));
       });
-      
-      // 如果过滤后还有结果，使用过滤后的列表；否则返回所有
-      if (filteredKbs.length > 0) {
-        candidateKbs = filteredKbs;
-      }
-    }
 
     return candidateKbs;
   } catch {
@@ -1492,102 +1475,44 @@ async function searchKnowledgeMulti(knowledgeBaseId, question) {
   const picked = [];
   const seen = new Set();
 
-  // 检查缓存
-  const now = Date.now();
   for (let i = 0; i < queries.length; i++) {
     const q = queries[i];
-    const cacheKey = `${knowledgeBaseId}:${q}`;
-    const cached = _searchCache.get(cacheKey);
-    
-    if (cached && now - cached.timestamp < SEARCH_CACHE_TTL_MS) {
-      // 使用缓存结果
-      for (let j = 0; j < cached.results.length; j++) {
-        const it = cached.results[j];
-        const id = String(it?.media_id || "").trim();
-        if (!id) continue;
-        if (seen.has(id)) continue;
-        seen.add(id);
-        picked.push(it);
-        if (picked.length >= 8) break;
-      }
-      if (picked.length) break;
-      continue;
+    const search = await imaApi("openapi/wiki/v1/search_knowledge", {
+      query: q,
+      cursor: "",
+      knowledge_base_id: knowledgeBaseId
+    });
+    const list = firstArrayByPaths(search, [
+      "info_list",
+      "data.info_list",
+      "result.info_list",
+      "data.result.info_list"
+    ]);
+    for (let j = 0; j < list.length; j++) {
+      const it = list[j];
+      const id = String(it?.media_id || "").trim();
+      if (!id) continue;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      picked.push(it);
+      if (picked.length >= 8) break;
     }
-
-    // 没有缓存或缓存过期，调用API
-    try {
-      const search = await imaApi("openapi/wiki/v1/search_knowledge", {
-        query: q,
-        cursor: "",
-        knowledge_base_id: knowledgeBaseId
-      });
-      const list = firstArrayByPaths(search, [
-        "info_list",
-        "data.info_list",
-        "result.info_list",
-        "data.result.info_list"
-      ]);
-      
-      // 缓存结果
-      if (list && list.length > 0) {
-        _searchCache.set(cacheKey, {
-          timestamp: now,
-          results: list.slice(0, 10) // 只缓存前10个结果
-        });
-      }
-      
-      for (let j = 0; j < list.length; j++) {
-        const it = list[j];
-        const id = String(it?.media_id || "").trim();
-        if (!id) continue;
-        if (seen.has(id)) continue;
-        seen.add(id);
-        picked.push(it);
-        if (picked.length >= 8) break;
-      }
-      if (picked.length) break;
-    } catch (error) {
-      // API调用失败，继续尝试下一个查询词
-      console.error(`搜索API调用失败: ${error.message}`);
-    }
+    if (picked.length) break;
   }
 
   if (picked.length) return { sources: picked, mode: "search_knowledge", queries };
 
-  // 如果没有搜索到结果，尝试获取知识库列表
-  const listCacheKey = `${knowledgeBaseId}:list`;
-  const listCached = _searchCache.get(listCacheKey);
-  let kbList = [];
-  
-  if (listCached && now - listCached.timestamp < SEARCH_CACHE_TTL_MS) {
-    kbList = listCached.results;
-  } else {
-    try {
-      const listResp = await imaApi("openapi/wiki/v1/get_knowledge_list", {
-        cursor: "",
-        limit: 30, // 减少限制，提高速度
-        knowledge_base_id: knowledgeBaseId
-      });
-      kbList = firstArrayByPaths(listResp, [
-        "knowledge_list",
-        "data.knowledge_list",
-        "result.knowledge_list",
-        "data.result.knowledge_list"
-      ]);
-      
-      // 缓存知识库列表
-      if (kbList && kbList.length > 0) {
-        _searchCache.set(listCacheKey, {
-          timestamp: now,
-          results: kbList
-        });
-      }
-    } catch (error) {
-      console.error(`获取知识库列表失败: ${error.message}`);
-      kbList = [];
-    }
-  }
-  
+  const listResp = await imaApi("openapi/wiki/v1/get_knowledge_list", {
+    cursor: "",
+    limit: 50,
+    knowledge_base_id: knowledgeBaseId
+  });
+  const kbList = firstArrayByPaths(listResp, [
+    "knowledge_list",
+    "data.knowledge_list",
+    "result.knowledge_list",
+    "data.result.knowledge_list"
+  ]);
   const q = normalizeQueryText(question);
   const filtered = [];
   for (let i = 0; i < kbList.length; i++) {

@@ -1068,9 +1068,18 @@
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:1.25">${kb.name}</span>
       `;
       const cb = div.querySelector("input");
+      const MAX_KB = 2;
       cb.addEventListener("change", () => {
-        if (cb.checked) _selectedKbIds.add(kb.id);
-        else _selectedKbIds.delete(kb.id);
+        if (cb.checked) {
+          if (_selectedKbIds.size >= MAX_KB) {
+            cb.checked = false;
+            setKbQaStatus(`最多只能选择 ${MAX_KB} 个知识库以避免超时`);
+            return;
+          }
+          _selectedKbIds.add(kb.id);
+        } else {
+          _selectedKbIds.delete(kb.id);
+        }
         updateKbMultiLabel();
       });
       kbMultiOptions.appendChild(div);
@@ -1468,11 +1477,17 @@
             localStorage.setItem("_admin_authed", "1");
             // 设置cookie作为微信备选（有效期1年）
             document.cookie = "_admin_c=1; path=/; max-age=31536000";
+            // 管理员登录成功后清除问答次数限制
+            localStorage.removeItem(KB_QA_STORAGE_KEY);
+            _kbqa_limit = 0;
+            updateKbQuotaUI();
           } catch {}
           if (adminStatus) adminStatus.textContent = "已登录，已解锁不限次。";
-          setTimeout(function () {
-            location.reload();
-          }, 300);
+          // 立即关闭所有弹窗
+          if (lockModal) lockModal.classList.add("hidden");
+          if (adminModal) adminModal.classList.add("hidden");
+          unlockState();
+          // 不reload页面，状态已保存在localStorage和cookie中
         } catch (e) {
           const name = String(e && e.name ? e.name : "");
           const msg = String(e && e.message ? e.message : "").trim();
