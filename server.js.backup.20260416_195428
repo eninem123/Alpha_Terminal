@@ -557,16 +557,12 @@ function getAllowedKbIds() {
 /** 动态获取当前用户有权访问的所有知识库（通过 IMA search API 探测） */
 async function fetchAllAccessibleKbs() {
   try {
-    console.log('[DEBUG] fetchAllAccessibleKbs: 调用IMA API...');
     const resp = await imaApi("openapi/wiki/v1/search_knowledge_base", {
       query: "知识",
       cursor: "",
-      limit: 20
+      limit: 50
     });
-    console.log('[DEBUG] fetchAllAccessibleKbs: API响应:', JSON.stringify(resp).slice(0, 500));
     const rawList = resp?.data?.info_list || resp?.info_list || [];
-    console.log('[DEBUG] fetchAllAccessibleKbs: rawList长度:', rawList.length);
-    
     // 关键词过滤：放宽范围，包含更多类型的知识库
     const KEYWORDS = [
       "理财", "投资", "财经", "金融", "股票", "基金", "债券", "信托",
@@ -586,8 +582,6 @@ async function fetchAllAccessibleKbs() {
       }))
       .filter(it => it.id && it.name);
     
-    console.log('[DEBUG] fetchAllAccessibleKbs: candidateKbs长度:', candidateKbs.length);
-    
     // 如果没有匹配到任何关键词，返回所有知识库（避免空列表）
     if (candidateKbs.length > 0) {
       const filteredKbs = candidateKbs.filter(it => {
@@ -595,18 +589,14 @@ async function fetchAllAccessibleKbs() {
         return KEYWORDS.some(k => n.includes(k.toLowerCase()));
       });
       
-      console.log('[DEBUG] fetchAllAccessibleKbs: filteredKbs长度:', filteredKbs.length);
-      
       // 如果过滤后还有结果，使用过滤后的列表；否则返回所有
       if (filteredKbs.length > 0) {
         candidateKbs = filteredKbs;
       }
     }
 
-    console.log('[DEBUG] fetchAllAccessibleKbs: 最终返回:', candidateKbs.length, '个知识库');
     return candidateKbs;
-  } catch (error) {
-    console.error('[DEBUG] fetchAllAccessibleKbs: 捕获错误:', error.message, error.stack);
+  } catch {
     return [];
   }
 }
@@ -669,7 +659,7 @@ async function resolveKnowledgeBaseIdOrError(forceRefresh, requestedKbId) {
   const resp = await imaApi("openapi/wiki/v1/search_knowledge_base", {
     query: cfg.name,
     cursor: "",
-    limit: 20
+    limit: 50
   });
   const list = firstArrayByPaths(resp, [
     "info_list",
