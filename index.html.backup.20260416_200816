@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>理财顾问获客助手</title>
+  <title>数据分析终端</title>
   <link rel="stylesheet" href="./tailwind.min.css" />
   <style>
     :root{
@@ -229,9 +229,9 @@
     <!-- Main Content -->
     <main id="appMain" class="blur-lock relative scanline px-4 pb-8 pt-4 hidden">
       <header class="glass-card terminal-glow rounded-2xl p-4 mb-4">
-        <div class="text-[10px] tracking-[.2em] text-amber-300/90">智能理财工具</div>
-        <h1 class="text-lg font-bold mt-2 text-white">理财顾问获客助手</h1>
-        <p class="text-xs text-slate-400 mt-1">获客 / 展业 / 管理</p>
+        <div class="text-[10px] tracking-[.2em] text-amber-300/90">内部数据视图</div>
+        <h1 class="text-lg font-bold mt-2 text-white">数据分析终端</h1>
+        <p class="text-xs text-slate-400 mt-1">多维指标 / 可视化</p>
         <p id="marketStatusLine" class="text-[11px] mt-2 leading-snug text-slate-500"></p>
       </header>
 
@@ -605,17 +605,5 @@
   <script>
       document.write('<div style="position:fixed;bottom:0;left:0;right:0;text-align:center;padding:6px 0;background:linear-gradient(to top,rgba(0,0,0,0.6) 0%,transparent 100%);pointer-events:none;z-index:9999;"><span style="font-size:11px;color:rgba(255,255,255,0.45);letter-spacing:0.5px;font-family:-apple-system,BlinkMacSystemFont,\'PingFang SC\',\'Microsoft YaHei\',sans-serif;">© 智博优 · Alpha_Terminal 智能终端系统 V1.0</span></div>');
   </script>
-<script>
-// 自动跳过合规遮罩 - 页面加载后自动接受合规声明
-window.addEventListener('load', function() {
-  setTimeout(function() {
-    var btn = document.getElementById('complianceBtn');
-    if (btn && !btn.disabled) {
-      console.log('自动跳过合规遮罩...');
-      btn.click();
-    }
-  }, 800); // 0.8秒延迟，让用户看到合规声明
-});
-</script>
 </body>
 </html>

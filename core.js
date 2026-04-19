@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const MAX_FREE_TRIES = 2;
+  const MAX_FREE_TRIES = 10;
   const STORAGE_KEY = "_u_limit";
   const LEVERAGE = 10;
   const MAX_KB_QA_TRIES = 2;
