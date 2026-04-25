@@ -201,8 +201,6 @@
     .hover\:bg-slate-700\/40:hover{background-color:rgba(51,65,85,.4)}
     .hover\:border-slate-500:hover{border-color:#64748b}
     .hover\:text-blue-300:hover{color:#a5b4fc}
-    .kbtn.active{background:#3b82f6!important;color:#fff!important}
-    .kline-tooltip{position:absolute;bottom:4px;left:4px;font-size:11px;color:#94a3b8;pointer-events:none;z-index:10}
   </style>
 </head>
 <body class="min-h-screen">
@@ -310,28 +308,6 @@
         </div>
       </section>
 
-      <!-- K线图 -->
-      <section class="glass-card rounded-2xl p-4 mb-4">
-        <div class="flex items-center justify-between mb-2">
-          <div class="text-sm text-slate-300">K线走势</div>
-          <div id="klinePeriodBtns" class="flex gap-1 text-xs">
-            <button class="kbtn px-2 py-0.5 rounded bg-slate-700 text-slate-300" data-p="5">5日</button>
-            <button class="kbtn px-2 py-0.5 rounded bg-slate-700 text-slate-300" data-p="10">10日</button>
-            <button class="kbtn px-2 py-0.5 rounded bg-slate-700 text-slate-300 active" data-p="20">20日</button>
-            <button class="kbtn px-2 py-0.5 rounded bg-slate-700 text-slate-300" data-p="60">60日</button>
-          </div>
-        </div>
-        <div id="klineChart" style="width:100%;height:180px;" class="rounded-lg overflow-hidden"></div>
-        <div id="klineLegend" class="flex gap-3 text-xs text-slate-400 mt-2">
-          <span>日K · </span><span id="klO">开 <span class="text-white">--</span></span>
-          <span>高 <span class="text-white">--</span></span>
-          <span>低 <span class="text-white">--</span></span>
-          <span>收 <span class="text-white">--</span></span>
-          <span>量 <span class="text-white">--</span></span>
-        </div>
-      </section>
-
-      <!-- 走势示意（杠杆演示，保留） -->
       <section class="glass-card rounded-2xl p-4">
         <div class="flex items-center justify-between mb-2">
           <div class="text-sm text-slate-300"><span class="lev-obf"></span>走势示意（比例演示）</div>
@@ -592,7 +568,6 @@
     </div>
   </div>
 
-  <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
   <script>
     (function () {
       var gate = document.getElementById("complianceGate");
