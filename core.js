@@ -1563,37 +1563,49 @@
   let _klineCurrentCode = null;
   let _klineCurrentPeriod = 20;
 
-  async function fetchKlineData(symbol, days) {
+  // 转换 K线数据为 lightweight-charts 格式
+  function convertKlineBar(dateStr, open, close, high, low, vol) {
+    const d = new Date(dateStr);
+    const t = Math.floor(d.getTime() / 1000); // Unix timestamp seconds
+    return { time: t, open: parseFloat(open), high: parseFloat(high), low: parseFloat(low), close: parseFloat(close), value: parseFloat(vol) };
+  }
+
+  // 腾讯财经日K（主数据源）
+  async function fetchKlineTencent(symbol, days) {
     const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?_var=kline_dayhfq&param=${symbol},day,,,${days},qfq`;
-    try {
-      const res = await fetchWithTimeout(url, {}, 8000);
-      if (!res.ok) return null;
-      const text = await res.text();
-      // 数据格式: kline_dayhfq={"code":0,"data":{"sh600000":{"qfqday":[[date,open,close,high,low,vol],...]}}}
-      const m = text.match(/kline_dayhfq=({.*})/);
-      if (!m) return null;
-      const json = JSON.parse(m[1]);
-      const symbolData = json?.data?.[symbol];
-      if (!symbolData) return null;
-      // 取复权日K数组
-      const bars = symbolData.qfqday || symbolData.day || [];
-      if (!Array.isArray(bars) || !bars.length) return null;
-      // 转换为 lightweight-charts 格式: {time, open, high, low, close, value(for volume)}
-      return bars.map(b => {
-        const d = new Date(b[0]);
-        const t = Math.floor(d.getTime() / 1000); // Unix timestamp seconds
-        const open = parseFloat(b[1]);
-        const close = parseFloat(b[2]);
-        const high = parseFloat(b[3]);
-        const low = parseFloat(b[4]);
-        const vol = parseFloat(b[5]);
-        return { time: t, open, high, low, close, value: vol };
-      });
-    } catch (e) {
-      console.log("[KLINE] fetch error:", e.message);
-      // TODO: 添加备用数据源（AKShare/东方财富）
-      return null;
-    }
+    const res = await fetchWithTimeout(url, {}, 8000);
+    if (!res.ok) return null;
+    const text = await res.text();
+    const m = text.match(/kline_dayhfq=({.*})/);
+    if (!m) return null;
+    const json = JSON.parse(m[1]);
+    const symbolData = json?.data?.[symbol];
+    if (!symbolData) return null;
+    const bars = symbolData.qfqday || symbolData.day || [];
+    if (!Array.isArray(bars) || !bars.length) return null;
+    return bars.map(b => convertKlineBar(b[0], b[1], b[2], b[3], b[4], b[5]));
+  }
+
+  // 新浪财经日K（备用数据源）
+  async function fetchKlineSina(symbol, days) {
+    // symbol 格式: sh600000 / sz000001
+    const url = `https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=${symbol}&scale=240&ma=5&datalen=${days}`;
+    const res = await fetchWithTimeout(url, {}, 8000);
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (!Array.isArray(json) || !json.length) return null;
+    return json.map(b => convertKlineBar(b.day, b.open, b.close, b.high, b.low, b.volume));
+  }
+
+  // 主入口：先腾讯，失败则新浪
+  async function fetchKlineData(symbol, days) {
+    let bars = await fetchKlineTencent(symbol, days);
+    if (bars) return bars;
+    // 备用：尝试新浪（symbol格式兼容）
+    bars = await fetchKlineSina(symbol, days);
+    if (bars) return bars;
+    console.log("[KLINE] 所有数据源均失败");
+    return null;
   }
 
   function initKlineChart() {
