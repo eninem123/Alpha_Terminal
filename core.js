@@ -1591,6 +1591,7 @@
       });
     } catch (e) {
       console.log("[KLINE] fetch error:", e.message);
+      // TODO: 添加备用数据源（AKShare/东方财富）
       return null;
     }
   }

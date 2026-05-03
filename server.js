@@ -82,6 +82,11 @@ applyWindowsRegistryEnvIfMissing([
   "TENCENT_OAI_MODEL"
 ]);
 
+// 生产环境关闭 DEBUG 日志，避免暴露 API 响应和内部数据
+const DEBUG = process.env.NODE_ENV !== 'production';
+const _log = (...args) => { if (DEBUG) console.log('[DEBUG]', new Date().toISOString().slice(11,19), ...args); };
+const _err = (...args) => { if (DEBUG) console.error('[DEBUG]', new Date().toISOString().slice(11,19), ...args); };
+
 const PORT = Number(process.env.PORT || 8787);
 const HOST =
   readEnvTrim("HOST") ||
@@ -95,6 +100,21 @@ const _kbQaQuota = new Map();
 // 搜索缓存：key格式为 "kbId:query"，value为搜索结果，缓存5分钟
 const _searchCache = new Map();
 const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
+
+// 定时清理过期缓存，防止内存泄漏
+function cleanSearchCache() {
+  const now = Date.now();
+  let removed = 0;
+  for (const [key, val] of _searchCache) {
+    if (now - val.timestamp > SEARCH_CACHE_TTL_MS) {
+      _searchCache.delete(key);
+      removed++;
+    }
+  }
+  if (removed > 0) _log('cleanSearchCache: 清理', removed, '条过期缓存');
+}
+// 每10分钟清理一次
+setInterval(cleanSearchCache, 10 * 60 * 1000);
 const KB_QA_RISK_PREFIX =
   "⚠️ 风险提示：以下内容仅为市场信息整理与板块逻辑分析，不构成任何投资建议。股市有风险，投资需谨慎。\n\n";
 
@@ -557,15 +577,15 @@ function getAllowedKbIds() {
 /** 动态获取当前用户有权访问的所有知识库（通过 IMA search API 探测） */
 async function fetchAllAccessibleKbs() {
   try {
-    console.log('[DEBUG] fetchAllAccessibleKbs: 调用IMA API...');
+    _log('fetchAllAccessibleKbs: 调用IMA API...');
     const resp = await imaApi("openapi/wiki/v1/search_knowledge_base", {
       query: "知识",
       cursor: "",
       limit: 20
     });
-    console.log('[DEBUG] fetchAllAccessibleKbs: API响应:', JSON.stringify(resp).slice(0, 500));
+    _log('fetchAllAccessibleKbs: API响应:', JSON.stringify(resp).slice(0, 500));
     const rawList = resp?.data?.info_list || resp?.info_list || [];
-    console.log('[DEBUG] fetchAllAccessibleKbs: rawList长度:', rawList.length);
+    _log('fetchAllAccessibleKbs: rawList长度:', rawList.length);
     
     // 关键词过滤：放宽范围，包含更多类型的知识库
     const KEYWORDS = [
@@ -586,7 +606,7 @@ async function fetchAllAccessibleKbs() {
       }))
       .filter(it => it.id && it.name);
     
-    console.log('[DEBUG] fetchAllAccessibleKbs: candidateKbs长度:', candidateKbs.length);
+    _log('fetchAllAccessibleKbs: candidateKbs长度:', candidateKbs.length);
     
     // 如果没有匹配到任何关键词，返回所有知识库（避免空列表）
     if (candidateKbs.length > 0) {
@@ -595,7 +615,7 @@ async function fetchAllAccessibleKbs() {
         return KEYWORDS.some(k => n.includes(k.toLowerCase()));
       });
       
-      console.log('[DEBUG] fetchAllAccessibleKbs: filteredKbs长度:', filteredKbs.length);
+      _log('fetchAllAccessibleKbs: filteredKbs长度:', filteredKbs.length);
       
       // 如果过滤后还有结果，使用过滤后的列表；否则返回所有
       if (filteredKbs.length > 0) {
@@ -603,10 +623,10 @@ async function fetchAllAccessibleKbs() {
       }
     }
 
-    console.log('[DEBUG] fetchAllAccessibleKbs: 最终返回:', candidateKbs.length, '个知识库');
+    _log('fetchAllAccessibleKbs: 最终返回:', candidateKbs.length, '个知识库');
     return candidateKbs;
   } catch (error) {
-    console.error('[DEBUG] fetchAllAccessibleKbs: 捕获错误:', error.message, error.stack);
+    _err('fetchAllAccessibleKbs: 捕获错误:', error.message, error.stack);
     return [];
   }
 }
