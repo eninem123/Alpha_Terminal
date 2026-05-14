@@ -87,6 +87,8 @@ const DEBUG = process.env.NODE_ENV !== 'production';
 const _log = (...args) => { if (DEBUG) console.log('[DEBUG]', new Date().toISOString().slice(11,19), ...args); };
 const _err = (...args) => { if (DEBUG) console.error('[DEBUG]', new Date().toISOString().slice(11,19), ...args); };
 
+const PORT = Number(process.env.PORT || 8787);
+
 // 优雅停机：追踪进行中的请求
 let _inFlightRequests = 0;
 const _pendingConnections = new Set();
