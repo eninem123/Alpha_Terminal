@@ -87,7 +87,9 @@ const DEBUG = process.env.NODE_ENV !== 'production';
 const _log = (...args) => { if (DEBUG) console.log('[DEBUG]', new Date().toISOString().slice(11,19), ...args); };
 const _err = (...args) => { if (DEBUG) console.error('[DEBUG]', new Date().toISOString().slice(11,19), ...args); };
 
-const PORT = Number(process.env.PORT || 8787);
+// 优雅停机：追踪进行中的请求
+let _inFlightRequests = 0;
+const _pendingConnections = new Set();
 const HOST =
   readEnvTrim("HOST") ||
   (process.env.NODE_ENV === "production"
@@ -2194,7 +2196,25 @@ async function serveStatic(req, res, pathname) {
 }
 
 const server = http.createServer(async (req, res) => {
+  req.on("close", () => {
+    if (_pendingConnections.has(req)) {
+      _pendingConnections.delete(req);
+      _inFlightRequests = Math.max(0, _inFlightRequests - 1);
+    }
+  });
+
+  req.on("error", (err) => {
+    if (_pendingConnections.has(req)) {
+      _pendingConnections.delete(req);
+      _inFlightRequests = Math.max(0, _inFlightRequests - 1);
+      _err('Request error:', err.message);
+    }
+  });
+
   try {
+    _pendingConnections.add(req);
+    _inFlightRequests++;
+
     const u = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
     const pathname = u.pathname;
 
