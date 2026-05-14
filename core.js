@@ -559,10 +559,12 @@
     return false;
   })();
   let _sinaRollDisabled = !_enableSinaRoll;
+  let _sinaRollFailed = false;  // 记录是否被拦截
   let _newsRollPage = 1;
 
   function loadSinaRollJsonp(onOk, onFail) {
     if (_sinaRollDisabled) {
+      _sinaRollFailed = true;
       onFail();
       return;
     }
@@ -584,6 +586,7 @@
     function doneFail() {
       if (settled) return;
       settled = true;
+      _sinaRollFailed = true;
       try {
         clearTimeout(tid);
       } catch (e0b) {}
@@ -692,14 +695,24 @@
     newsMarqueeTrackEl.removeAttribute("style");
 
     if (!items.length) {
+      // 新浪滚动被拦截时显示明确提示
+      const blockedHint = _sinaRollFailed ? "⚠️ 新浪滚动被拦截 · " : "";
+      if (_sinaRollFailed && newsTickerHintEl) {
+        newsTickerHintEl.textContent = "新浪滚动被拦截 · 仅提供腾讯入口";
+        newsTickerHintEl.className = "text-[10px] text-amber-400 truncate";
+      }
+      const container = document.createElement("div");
+      container.className = "flex items-center gap-3 px-2 py-1 w-full";
+
       const a = document.createElement("a");
       a.href = QQ_FINANCE_CH;
       a.target = "_blank";
       a.rel = "noopener noreferrer";
       a.className =
-        "text-xs text-emerald-300 hover:text-emerald-200 shrink-0 underline underline-offset-2 py-1";
-      a.textContent = "打开腾讯财经 · 浏览 A 股资讯";
-      newsMarqueeTrackEl.appendChild(a);
+        "text-xs text-sky-300 hover:text-sky-200 shrink-0 underline underline-offset-2";
+      a.textContent = "📰 打开腾讯财经";
+      container.appendChild(a);
+      newsMarqueeTrackEl.appendChild(container);
       newsMarqueeTrackEl.style.animation = "none";
       return;
     }
@@ -721,7 +734,7 @@
         a.textContent = prefix + it.title;
         a.title = it.title;
         a.className =
-          "shrink-0 text-left text-xs leading-snug text-emerald-100/95 hover:text-emerald-300 max-w-[min(320px,88vw)] overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-700/60 pr-6 mr-2";
+          "shrink-0 text-left text-xs leading-snug text-emerald-100/95 hover:text-emerald-300 max-w-[min(320px,88vw)] overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-700/60 pr-5 mr-3";
         target.appendChild(a);
       }
     }
@@ -744,6 +757,7 @@
   }
 
   function refreshNewsMarquee() {
+    _sinaRollFailed = false;
     if (!newsMarqueeTrackEl) return;
     const rawCode = (codeInput && codeInput.value ? codeInput.value : "").trim();
     const code6 = /^\d{6}$/.test(rawCode) ? rawCode : "";
