@@ -695,11 +695,10 @@
     newsMarqueeTrackEl.removeAttribute("style");
 
     if (!items.length) {
-      // 新浪滚动被拦截时显示明确提示
-      const blockedHint = _sinaRollFailed ? "⚠️ 新浪滚动被拦截 · " : "";
+      // 静默降级：不显示拦截提示，直接展示腾讯入口
       if (_sinaRollFailed && newsTickerHintEl) {
-        newsTickerHintEl.textContent = "新浪滚动被拦截 · 仅提供腾讯入口";
-        newsTickerHintEl.className = "text-[10px] text-amber-400 truncate";
+        newsTickerHintEl.textContent = "腾讯资讯";
+        newsTickerHintEl.className = "text-[10px] text-slate-500 truncate";
       }
       const container = document.createElement("div");
       container.className = "flex items-center gap-3 px-2 py-1 w-full";
@@ -710,7 +709,7 @@
       a.rel = "noopener noreferrer";
       a.className =
         "text-xs text-sky-300 hover:text-sky-200 shrink-0 underline underline-offset-2";
-      a.textContent = "📰 打开腾讯财经";
+      a.textContent = "📰 腾讯财经";
       container.appendChild(a);
       newsMarqueeTrackEl.appendChild(container);
       newsMarqueeTrackEl.style.animation = "none";
@@ -770,7 +769,7 @@
     if (newsTickerHintEl) {
       if (!code6) {
         newsTickerHintEl.textContent =
-          "未输入代码 · 下方先显示腾讯入口；新浪滚动加载后追加（若被拦截则仅腾讯链接）";
+          "未输入代码 · 下方显示腾讯财经入口";
       } else if (displayName) {
         newsTickerHintEl.textContent =
           "已查询 " +
@@ -788,7 +787,7 @@
     if (_sinaRollDisabled) {
       if (newsTickerHintEl) {
         newsTickerHintEl.textContent = code6
-          ? "新浪滚动已被浏览器拦截 · 请点下方腾讯自选股 / 腾讯财经"
+          ? "新浪滚动不可用 · 请用下方腾讯自选股 / 腾讯财经"
           : "新浪滚动已被浏览器拦截 · 请点下方腾讯财经链接";
       }
       return;
