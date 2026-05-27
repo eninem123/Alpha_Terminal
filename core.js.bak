@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const MAX_FREE_TRIES = 2;
+  const MAX_FREE_TRIES = 10;
   const STORAGE_KEY = "_u_limit";
   const LEVERAGE = 10;
   const MAX_KB_QA_TRIES = 2;
@@ -26,10 +26,24 @@
     return true;
   }
 
+    // 获取微信WebView兼容的cookie
+  function getAdminCookie() {
+    const match = document.cookie.match(/(?:^|;)\s*_admin_c=([^;]*)/);
+    return match ? match[1] : null;
+  }
+
   function isAdminAuthed() {
     try {
-      return localStorage.getItem("_admin_authed") === "1";
+      // 先检查localStorage
+      const lsVal = localStorage.getItem("_admin_authed");
+      console.log("[DEBUG] isAdminAuthed, localStorage=" + lsVal);
+      if (lsVal === "1") return true;
+      // 再检查cookie（微信WebView备选）
+      const ckVal = getAdminCookie();
+      console.log("[DEBUG] isAdminAuthed, cookie=" + ckVal);
+      return ckVal === "1";
     } catch {
+      console.log("[DEBUG] isAdminAuthed, exception");
       return false;
     }
   }
@@ -47,12 +61,18 @@
 
   function applyAdminAuthState(authed) {
     const ok = authed === true;
+    const localAdminAuthed = isAdminAuthed(); // 从localStorage读取
+    console.log("[DEBUG] applyAdminAuthState called, auth=" + auth + ", localAdminAuthed=" + localAdminAuthed);
     try {
+      // 只有服务器确认authed=true时才更新localStorage
+      // 如果服务器返回false，不清除localStorage（保留微信WebView的fallback）
       if (ok) localStorage.setItem("_admin_authed", "1");
-      else localStorage.removeItem("_admin_authed");
+      // else localStorage.removeItem("_admin_authed"); // 注释掉，避免清除备选状态
     } catch {}
-    effectiveUsageBypass = localUsageBypass || ok;
-    effectiveVipUnlimited = localVipUnlimited || ok;
+    // 关键：effectiveUsageBypass应该同时考虑localStorage的fallback状态
+    effectiveUsageBypass = localUsageBypass || localAdminAuthed;
+    effectiveVipUnlimited = localVipUnlimited || localAdminAuthed;
+    console.log("[DEBUG] effectiveUsageBypass=" + effectiveUsageBypass + ", localVipUnlimited=" + effectiveVipUnlimited);
     updateTriesLeftUI();
     updateKbQuotaUI();
   }
@@ -222,13 +242,11 @@
   const kbQaOpenBtn = document.getElementById("kbQaOpenBtn");
   const kbQaModal = document.getElementById("kbQaModal");
   const kbQaCloseBtn = document.getElementById("kbQaCloseBtn");
-  const kbMultiWrapper = document.getElementById("kbMultiWrapper");
-  const kbMultiBtn = document.getElementById("kbMultiBtn");
-  const kbMultiLabel = document.getElementById("kbMultiLabel");
-  const kbMultiDropdown = document.getElementById("kbMultiDropdown");
   const kbMultiOptions = document.getElementById("kbMultiOptions");
   const kbMultiCount = document.getElementById("kbMultiCount");
-  const kbMultiConfirm = document.getElementById("kbMultiConfirm");
+  const kbPrevPageBtn2 = document.getElementById("kbPrevPageBtn2");
+  const kbNextPageBtn2 = document.getElementById("kbNextPageBtn2");
+  const kbPageLabel2 = document.getElementById("kbPageLabel2");
   const kbRefreshBtn = document.getElementById("kbRefreshBtn");
   const kbQuestion = document.getElementById("kbQuestion");
   const kbAskBtn = document.getElementById("kbAskBtn");
@@ -541,10 +559,12 @@
     return false;
   })();
   let _sinaRollDisabled = !_enableSinaRoll;
+  let _sinaRollFailed = false;  // 记录是否被拦截
   let _newsRollPage = 1;
 
   function loadSinaRollJsonp(onOk, onFail) {
     if (_sinaRollDisabled) {
+      _sinaRollFailed = true;
       onFail();
       return;
     }
@@ -674,14 +694,24 @@
     newsMarqueeTrackEl.removeAttribute("style");
 
     if (!items.length) {
+      // 新浪滚动被拦截时显示明确提示
+      const blockedHint = _sinaRollFailed ? "⚠️ 新浪滚动被拦截 · " : "";
+      if (_sinaRollFailed && newsTickerHintEl) {
+        newsTickerHintEl.textContent = "新浪滚动被拦截 · 仅提供腾讯入口";
+        newsTickerHintEl.className = "text-[10px] text-amber-400 truncate";
+      }
+      const container = document.createElement("div");
+      container.className = "flex items-center gap-3 px-2 py-1 w-full";
+
       const a = document.createElement("a");
       a.href = QQ_FINANCE_CH;
       a.target = "_blank";
       a.rel = "noopener noreferrer";
       a.className =
-        "text-xs text-emerald-300 hover:text-emerald-200 shrink-0 underline underline-offset-2 py-1";
-      a.textContent = "打开腾讯财经 · 浏览 A 股资讯";
-      newsMarqueeTrackEl.appendChild(a);
+        "text-xs text-sky-300 hover:text-sky-200 shrink-0 underline underline-offset-2";
+      a.textContent = "📰 打开腾讯财经";
+      container.appendChild(a);
+      newsMarqueeTrackEl.appendChild(container);
       newsMarqueeTrackEl.style.animation = "none";
       return;
     }
@@ -976,11 +1006,17 @@
   function openKbQaModal() {
     if (!kbQaModal) return;
     kbQaModal.classList.remove("hidden");
+    kbQaModal.style.display = "block";
+    if (kbQaOpenBtn) kbQaOpenBtn.textContent = "▼ 收起问答";
+    // Auto-fetch KB list if not loaded yet
+    if (_kbListData && !_kbListData.length) fetchKbList();
   }
 
   function closeKbQaModal() {
     if (!kbQaModal) return;
     kbQaModal.classList.add("hidden");
+    kbQaModal.style.display = "none";
+    if (kbQaOpenBtn) kbQaOpenBtn.textContent = "▶ 展开问答";
   }
 
   function stripHtmlToText(s) {
@@ -1008,47 +1044,66 @@
     return await fetch(url, options || {});
   }
 
-  // 更新多选 KB 按钮标签和计数
+  // 分页状态
+  let _kbPage = 0;
+  const _kbPageSize = 5;
+
+  // 更新 KB 已选计数 + 分页标签
   function updateKbMultiLabel() {
     const selected = Array.from(_selectedKbIds);
-    if (selected.length === 0) {
-      kbMultiLabel.textContent = "请选择知识库（可多选）…";
-      kbMultiLabel.className = "text-slate-400 truncate";
-    } else if (selected.length === 1) {
-      const kb = _kbListData.find(k => k.id === selected[0]);
-      kbMultiLabel.textContent = "已选：" + (kb ? kb.name : selected[0]);
-      kbMultiLabel.className = "text-white truncate";
-    } else {
-      kbMultiLabel.textContent = `已选 ${selected.length} 个知识库`;
-      kbMultiLabel.className = "text-blue-400 truncate";
-    }
     if (kbMultiCount) kbMultiCount.textContent = "已选 " + selected.length + " 个";
+    const totalPages = Math.max(1, Math.ceil((_kbListData.length || 1) / _kbPageSize));
+    if (kbPageLabel2) kbPageLabel2.textContent = `${_kbPage + 1}/${totalPages}`;
+    if (kbPrevPageBtn2) kbPrevPageBtn2.disabled = _kbPage <= 0;
+    if (kbNextPageBtn2) kbNextPageBtn2.disabled = _kbPage >= totalPages - 1;
   }
 
-  // 渲染 KB 下拉选项（checkboxes）
-  function renderKbOptions(list) {
+  // 渲染当前页 KB 选项
+  function renderKbPage() {
     if (!kbMultiOptions) return;
     kbMultiOptions.innerHTML = "";
+    const list = _kbListData || [];
     if (!list.length) {
-      kbMultiOptions.innerHTML = '<div class="px-3 py-2 text-sm text-slate-500">未获取到知识库</div>';
+      kbMultiOptions.innerHTML = '<div style="padding:12px;font-size:13px;color:#64748b">未获取到知识库</div>';
       return;
     }
-    list.forEach(kb => {
+    const start = _kbPage * _kbPageSize;
+    const pageItems = list.slice(start, start + _kbPageSize);
+    pageItems.forEach(kb => {
       const div = document.createElement("label");
-      div.className = "flex items-center gap-2.5 px-3 py-2 hover:bg-slate-700/40 cursor-pointer text-sm text-white";
+      div.style.cssText = "display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;color:#fff";
+      div.onmouseover = () => { div.style.background = "rgba(51,65,85,.4)" };
+      div.onmouseout = () => { div.style.background = "" };
       const checked = _selectedKbIds.has(kb.id);
       div.innerHTML = `
-        <input type="checkbox" value="${kb.id}" class="kb-multi-cb accent-blue-500" ${checked ? "checked" : ""} />
-        <span class="flex-1 truncate text-[13px]">${kb.name}</span>
+        <input type="checkbox" value="${kb.id}" style="accent-color:#3b82f6;flex-shrink:0" ${checked ? "checked" : ""} />
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:1.25">${kb.name}</span>
       `;
       const cb = div.querySelector("input");
+      const MAX_KB = 2;
       cb.addEventListener("change", () => {
-        if (cb.checked) _selectedKbIds.add(kb.id);
-        else _selectedKbIds.delete(kb.id);
+        if (cb.checked) {
+          if (_selectedKbIds.size >= MAX_KB) {
+            cb.checked = false;
+            setKbQaStatus(`最多只能选择 ${MAX_KB} 个知识库以避免超时`);
+            return;
+          }
+          _selectedKbIds.add(kb.id);
+        } else {
+          _selectedKbIds.delete(kb.id);
+        }
         updateKbMultiLabel();
       });
       kbMultiOptions.appendChild(div);
     });
+    updateKbMultiLabel();
+  }
+
+  // 渲染 KB 列表（重置到第一页）
+  function renderKbOptions(list) {
+    _kbListData = Array.isArray(list) ? list : [];
+    _kbPage = 0;
+    renderKbPage();
   }
 
   async function fetchKbList() {
@@ -1070,40 +1125,24 @@
       setKbQaStatus(list.length ? "知识库列表已更新（共 " + list.length + " 个相关知识库）。" : "没有可用的知识库。");
     } catch (e) {
       const msg = String(e && e.message ? e.message : "").trim();
-      if (kbMultiOptions) kbMultiOptions.innerHTML = '<div class="px-3 py-2 text-sm text-red-400">加载失败</div>';
-      kbMultiLabel.textContent = "加载失败，请刷新";
+      if (kbMultiOptions) kbMultiOptions.innerHTML = '<div style="padding:8px 12px;font-size:13px;color:#f87171">加载失败</div>';
+      if (kbMultiOptions) kbMultiOptions.innerHTML = '<div style="padding:8px 12px;font-size:13px;color:#f87171">加载失败，请刷新</div>';
       setKbQaStatus(msg && msg !== "BAD_STATUS" && msg !== "AbortError" ? "问答服务错误：" + msg : "问答服务未响应，请稍后重试。");
     }
   }
 
-  // 多选下拉展开/收起
-  if (kbMultiBtn) {
-    kbMultiBtn.addEventListener("click", () => {
-      const isHidden = kbMultiDropdown && kbMultiDropdown.classList.contains("hidden");
-      if (isHidden) {
-        kbMultiDropdown.classList.remove("hidden");
-        document.getElementById("kbMultiChevron").style.transform = "rotate(180deg)";
-      } else {
-        kbMultiDropdown.classList.add("hidden");
-        document.getElementById("kbMultiChevron").style.transform = "";
-      }
+  // KB 分页按钮
+  if (kbPrevPageBtn2) {
+    kbPrevPageBtn2.addEventListener("click", () => {
+      if (_kbPage > 0) { _kbPage--; renderKbPage(); }
     });
   }
-  if (kbMultiConfirm) {
-    kbMultiConfirm.addEventListener("click", () => {
-      kbMultiDropdown.classList.add("hidden");
-      document.getElementById("kbMultiChevron").style.transform = "";
-      updateKbMultiLabel();
+  if (kbNextPageBtn2) {
+    kbNextPageBtn2.addEventListener("click", () => {
+      const totalPages = Math.ceil((_kbListData.length || 1) / _kbPageSize);
+      if (_kbPage < totalPages - 1) { _kbPage++; renderKbPage(); }
     });
   }
-  // 点击外部关闭
-  document.addEventListener("click", e => {
-    if (kbMultiWrapper && !kbMultiWrapper.contains(e.target)) {
-      kbMultiDropdown && kbMultiDropdown.classList.add("hidden");
-      const chevron = document.getElementById("kbMultiChevron");
-      if (chevron) chevron.style.transform = "";
-    }
-  });
 
   async function askKbQuestion() {
     if (!kbQuestion) return;
@@ -1130,11 +1169,11 @@
     const isMulti = selectedIds.length > 1;
     if (kbAskBtn) {
       kbAskBtn.disabled = true;
-      kbAskBtn.textContent = isMulti ? "多库检索中…" : "检索中…";
+      kbAskBtn.textContent = isMulti ? "多库检索+生成中…" : "检索+生成中…";
     }
     setKbQaAnswer("");
     setKbQaSources([]);
-    setKbQaStatus("正在检索并生成回答…");
+    setKbQaStatus("正在检索知识库 + 生成回答（DeepSeek模型响应需要10-40秒，请耐心等待）…");
 
     try {
       if (!effectiveVipUnlimited && vipKey && !effectiveUsageBypass && _kbqa_limit >= MAX_KB_QA_TRIES) {
@@ -1232,7 +1271,7 @@
       return;
     }
 
-    if (!localUsageBypass) {
+    if (!effectiveUsageBypass) {
       if (_u_limit > MAX_FREE_TRIES) {
         setLockedState();
         return;
@@ -1254,7 +1293,7 @@
       const b64Packet = await fetchStockData(code);
       const data = b64DecodeJson(b64Packet);
 
-      if (!localUsageBypass) {
+      if (!effectiveUsageBypass) {
         _u_limit += 1;
         localStorage.setItem(STORAGE_KEY, String(_u_limit));
         updateTriesLeftUI();
@@ -1282,6 +1321,12 @@
       updateMarketStatusLine();
       refreshNewsMarquee();
       startLiveFeed();
+
+      // 更新K线图
+      if (_klineCurrentCode !== code || !_klineChart) {
+        _klineCurrentCode = code;
+        updateKlineChart(code, _klineCurrentPeriod);
+      }
     } catch (e) {
       const c = e && e.code;
       if (c === "UNSUPPORTED_CODE") {
@@ -1306,20 +1351,28 @@
   }
 
   function init() {
+    console.log("[DEBUG] init called, effectiveUsageBypass=" + effectiveUsageBypass + ", _u_limit=" + _u_limit + ", cookie=" + document.cookie);
+    
+    // 立即检查localStorage管理员状态并解锁（不等待网络请求）
+    const localAdminAuthed = isAdminAuthed();
+    if (localAdminAuthed) {
+      console.log("[DEBUG] localStorage admin detected, unlocking immediately");
+      unlockState();
+    } else if (_u_limit > MAX_FREE_TRIES) {
+      console.log("[DEBUG] no admin, _u_limit exceeded, locking");
+      setLockedState();
+    }
+    
+    // 异步同步服务器状态（不阻塞UI）
     syncAdminAuthStatus()
       .then(() => {
+        console.log("[DEBUG] syncAdminAuthStatus done, effectiveUsageBypass=" + effectiveUsageBypass);
         if (effectiveUsageBypass) unlockState();
         else if (_u_limit > MAX_FREE_TRIES) setLockedState();
       })
       .catch(() => {});
 
     updateTriesLeftUI();
-
-    if (effectiveUsageBypass) {
-      unlockState();
-    } else if (_u_limit > MAX_FREE_TRIES) {
-      setLockedState();
-    }
 
     queryBtn.addEventListener("click", runQuery);
 
@@ -1440,11 +1493,19 @@
           }
           try {
             localStorage.setItem("_admin_authed", "1");
+            // 设置cookie作为微信备选（有效期1年）
+            document.cookie = "_admin_c=1; path=/; max-age=31536000";
+            // 管理员登录成功后清除问答次数限制
+            localStorage.removeItem(KB_QA_STORAGE_KEY);
+            _kbqa_limit = 0;
+            updateKbQuotaUI();
           } catch {}
           if (adminStatus) adminStatus.textContent = "已登录，已解锁不限次。";
-          setTimeout(function () {
-            location.reload();
-          }, 300);
+          // 立即关闭所有弹窗
+          if (lockModal) lockModal.classList.add("hidden");
+          if (adminModal) adminModal.classList.add("hidden");
+          unlockState();
+          // 不reload页面，状态已保存在localStorage和cookie中
         } catch (e) {
           const name = String(e && e.name ? e.name : "");
           const msg = String(e && e.message ? e.message : "").trim();
@@ -1506,6 +1567,200 @@
       });
     }
   }
+
+  // ===== K线图表 =====
+  let _klineChart = null;
+  let _klineCandleSeries = null;
+  let _klineVolumeSeries = null;
+  let _klineCurrentCode = null;
+  let _klineCurrentPeriod = 20;
+
+  // 转换 K线数据为 lightweight-charts 格式
+  function convertKlineBar(dateStr, open, close, high, low, vol) {
+    const d = new Date(dateStr);
+    const t = Math.floor(d.getTime() / 1000); // Unix timestamp seconds
+    return { time: t, open: parseFloat(open), high: parseFloat(high), low: parseFloat(low), close: parseFloat(close), value: parseFloat(vol) };
+  }
+
+  // 腾讯财经日K（主数据源）
+  async function fetchKlineTencent(symbol, days) {
+    const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?_var=kline_dayhfq&param=${symbol},day,,,${days},qfq`;
+    const res = await fetchWithTimeout(url, {}, 8000);
+    if (!res.ok) return null;
+    const text = await res.text();
+    const m = text.match(/kline_dayhfq=({.*})/);
+    if (!m) return null;
+    const json = JSON.parse(m[1]);
+    const symbolData = json?.data?.[symbol];
+    if (!symbolData) return null;
+    const bars = symbolData.qfqday || symbolData.day || [];
+    if (!Array.isArray(bars) || !bars.length) return null;
+    return bars.map(b => convertKlineBar(b[0], b[1], b[2], b[3], b[4], b[5]));
+  }
+
+  // 新浪财经日K（备用数据源）
+  async function fetchKlineSina(symbol, days) {
+    // symbol 格式: sh600000 / sz000001
+    const url = `https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=${symbol}&scale=240&ma=5&datalen=${days}`;
+    const res = await fetchWithTimeout(url, {}, 8000);
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (!Array.isArray(json) || !json.length) return null;
+    return json.map(b => convertKlineBar(b.day, b.open, b.close, b.high, b.low, b.volume));
+  }
+
+  // 主入口：先腾讯，失败则新浪
+  async function fetchKlineData(symbol, days) {
+    let bars = await fetchKlineTencent(symbol, days);
+    if (bars) return bars;
+    // 备用：尝试新浪（symbol格式兼容）
+    bars = await fetchKlineSina(symbol, days);
+    if (bars) return bars;
+    console.log("[KLINE] 所有数据源均失败");
+    return null;
+  }
+
+  function initKlineChart() {
+    const container = document.getElementById("klineChart");
+    if (!container) return;
+    // 防止重复初始化
+    if (_klineChart) {
+      _klineChart.remove();
+      _klineChart = null;
+      _klineCandleSeries = null;
+      _klineVolumeSeries = null;
+    }
+    try {
+      _klineChart = LightweightCharts.createChart(container, {
+        width: container.clientWidth || container.offsetWidth || 320,
+        height: 160,
+        layout: {
+          background: { type: "solid", color: "#0f172a" },
+          textColor: "#94a3b8",
+          fontSize: 11
+        },
+        grid: {
+          vertLines: { color: "rgba(30,41,59,0.6)" },
+          horzLines: { color: "rgba(30,41,59,0.6)" }
+        },
+        crosshair: {
+          mode: LightweightCharts.CrosshairMode.Normal,
+          vertLine: { color: "rgba(96,165,250,0.5)", labelBackgroundColor: "#3b82f6" },
+          horzLine: { color: "rgba(96,165,250,0.5)", labelBackgroundColor: "#3b82f6" }
+        },
+        timeScale: {
+          timeVisible: false,
+          borderColor: "rgba(30,41,59,0.8)"
+        },
+        rightPriceScale: {
+          borderColor: "rgba(30,41,59,0.8)"
+        }
+      });
+
+      _klineCandleSeries = _klineChart.addCandlestickSeries({
+        upColor: "#22c55e",
+        downColor: "#ef4444",
+        borderVisible: false,
+        wickUpColor: "#22c55e",
+        wickDownColor: "#ef4444"
+      });
+
+      _klineVolumeSeries = _klineChart.addHistogramSeries({
+        priceFormat: { type: "volume" },
+        priceScaleId: "",
+        color: "#3b82f6"
+      });
+      _klineVolumeSeries.priceScale().applyOptions({
+        scaleMargins: { top: 0.8, bottom: 0 }
+      });
+
+      // 十字光标联动 legend
+      _klineChart.subscribeCrosshairMove(function (param) {
+        const legend = document.getElementById("klineLegend");
+        if (!legend || !param || !param.seriesData) return;
+        const candleData = param.seriesData.get(_klineCandleSeries);
+        const volData = param.seriesData.get(_klineVolumeSeries);
+        if (!candleData) return;
+        const [o, h, l, c] = [candleData.open, candleData.high, candleData.low, candleData.close];
+        const v = volData ? volData.value : 0;
+        const fmtV = v >= 10000 ? (v / 10000).toFixed(1) + "万" : String(Math.round(v));
+        legend.innerHTML = `<span>日K · </span><span>开 <span class="text-white">${o?.toFixed(2) ?? "--"}</span></span> <span>高 <span class="text-white">${h?.toFixed(2) ?? "--"}</span></span> <span>低 <span class="text-white">${l?.toFixed(2) ?? "--"}</span></span> <span>收 <span class="text-white">${c?.toFixed(2) ?? "--"}</span></span> <span>量 <span class="text-white">${fmtV}</span></span>`;
+      });
+
+      // resize 监听
+      const ro = new ResizeObserver(() => {
+        if (_klineChart && container) {
+          _klineChart.applyOptions({ width: container.clientWidth || 320 });
+        }
+      });
+      ro.observe(container);
+    } catch (e) {
+      console.log("[KLINE] init error:", e.message);
+    }
+  }
+
+  async function updateKlineChart(code, period) {
+    if (!code) return;
+    const symbol = codeToSymbol(code);
+    if (!symbol) return;
+    if (!_klineChart) initKlineChart();
+    if (!_klineChart || !_klineCandleSeries) return;
+
+    _klineCurrentCode = code;
+    const days = period || _klineCurrentPeriod;
+    const data = await fetchKlineData(symbol, days);
+    if (!data || !data.length) {
+      console.log("[KLINE] no data for", symbol);
+      return;
+    }
+
+    // 限制最大显示数量
+    const maxBars = Math.max(days, 60);
+    const trimmed = data.length > maxBars ? data.slice(-maxBars) : data;
+
+    _klineCandleSeries.setData(trimmed.map(d => ({
+      time: d.time,
+      open: d.open,
+      high: d.high,
+      low: d.low,
+      close: d.close
+    })));
+    _klineVolumeSeries.setData(trimmed.map(d => ({
+      time: d.time,
+      value: d.value,
+      color: d.close >= d.open ? "rgba(34,197,94,0.4)" : "rgba(239,68,68,0.4)"
+    })));
+
+    // 显示最新一根K线的光标（十字光标移到最新）
+    const last = trimmed[trimmed.length - 1];
+    if (last) {
+      _klineChart.moveCrosshairTo(last.time);
+      // 更新 legend 显示最新
+      const legend = document.getElementById("klineLegend");
+      if (legend) {
+        const v = last.value;
+        const fmtV = v >= 10000 ? (v / 10000).toFixed(1) + "万" : String(Math.round(v));
+        legend.innerHTML = `<span>日K · </span><span>开 <span class="text-white">${last.open.toFixed(2)}</span></span> <span>高 <span class="text-white">${last.high.toFixed(2)}</span></span> <span>低 <span class="text-white">${last.low.toFixed(2)}</span></span> <span>收 <span class="text-white">${last.close.toFixed(2)}</span></span> <span>量 <span class="text-white">${fmtV}</span></span>`;
+      }
+    }
+    _klineChart.timeScale().fitContent();
+  }
+
+  // ===== init 末尾添加 K线初始化 =====
+  initKlineChart();
+
+  // 周期按钮事件
+  document.querySelectorAll(".kbtn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.querySelectorAll(".kbtn").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      _klineCurrentPeriod = parseInt(btn.getAttribute("data-p") || "20", 10);
+      if (_klineCurrentCode) updateKlineChart(_klineCurrentCode, _klineCurrentPeriod);
+    });
+  });
+
+  // runQuery 成功后自动更新K线
+  const _origApplyPriceUI = applyPriceUI;
 
   init();
 })();
