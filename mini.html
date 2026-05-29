@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="format-detection" content="telephone=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <!-- 微信分享meta -->
+  <meta property="og:title" content="AI量化策略回测 — 股票跌了不可怕" />
+  <meta property="og:description" content="输入股票代码，3秒看清AI策略 vs 直线持有的差距" />
+  <meta property="og:type" content="website" />
+  <title>AI策略回测 — 股票回撤不怕</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    :root{
+      --bg:#0a0e14;--panel:#131920;--card:#1a2230;
+      --green:#00e87b;--red:#ff3b4a;--blue:#3b82f6;
+      --text:#e2e8f0;--muted:#7a8a9e;--line:#1e2d3d;
+    }
+    html,body{background:var(--bg);color:var(--text);font-family:-apple-system,"PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif;min-height:100vh;-webkit-font-smoothing:antialiased}
+    .container{max-width:440px;margin:0 auto;padding:0 20px}
+
+    /* === HERO === */
+    .hero{padding:48px 0 32px;text-align:center}
+    .hero h1{font-size:26px;font-weight:800;line-height:1.35;background:linear-gradient(135deg,#fff 0%,#94a3b8 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .hero p{margin-top:12px;font-size:15px;color:var(--muted);line-height:1.6}
+    .hero .highlight{color:var(--green);font-weight:700}
+
+    /* === STEP INDICATOR === */
+    .steps{display:flex;justify-content:center;gap:8px;margin-bottom:28px}
+    .step-dot{width:32px;height:4px;border-radius:2px;background:#1e2d3d;transition:all .3s}
+    .step-dot.active{background:var(--blue);width:48px}
+
+    /* === PANELS === */
+    .panel{display:none;animation:fadeIn .35s ease}
+    .panel.active{display:block}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+
+    /* === STEP 1: INPUT === */
+    .input-box{background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:20px;margin-bottom:16px}
+    .input-box label{display:block;font-size:13px;color:var(--muted);margin-bottom:8px;font-weight:500}
+    .code-input{width:100%;background:#0d1117;border:1.5px solid var(--line);border-radius:10px;padding:14px 16px;color:#fff;font-size:18px;font-weight:600;letter-spacing:2px;text-align:center;outline:none;transition:border-color .2s}
+    .code-input:focus{border-color:var(--blue)}
+    .code-input::placeholder{color:#3a4a5e;letter-spacing:1px;font-weight:400}
+
+    .profile-group{display:flex;gap:10px;margin-bottom:20px}
+    .profile-btn{flex:1;background:var(--card);border:1.5px solid var(--line);border-radius:12px;padding:14px 8px;text-align:center;cursor:pointer;transition:all .2s;-webkit-tap-highlight-color:transparent}
+    .profile-btn .icon{font-size:24px;display:block;margin-bottom:4px}
+    .profile-btn .name{font-size:13px;font-weight:600;color:var(--text)}
+    .profile-btn .desc{font-size:11px;color:var(--muted);margin-top:2px}
+    .profile-btn.selected{border-color:var(--blue);background:rgba(59,130,246,.1)}
+    .profile-btn.selected .name{color:var(--blue)}
+
+    .run-btn{width:100%;padding:16px;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;transition:all .2s;background:linear-gradient(135deg,var(--blue),#6366f1);color:#fff;box-shadow:0 4px 20px rgba(59,130,246,.3)}
+    .run-btn:active{transform:translateY(0)}
+    .run-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+
+    /* === STEP 2: RESULTS === */
+    .compare-banner{background:var(--card);border-radius:14px;padding:20px;margin-bottom:16px;display:flex;align-items:center;gap:16px}
+    .compare-item{flex:1;text-align:center}
+    .compare-item .label{font-size:12px;color:var(--muted);margin-bottom:4px}
+    .compare-item .value{font-size:28px;font-weight:800}
+    .compare-item .value.red{color:var(--red)}
+    .compare-item .value.green{color:var(--green)}
+    .compare-vs{font-size:14px;color:var(--muted);font-weight:700;flex-shrink:0}
+
+    .chart-wrap{background:var(--card);border-radius:14px;padding:16px;margin-bottom:16px}
+    .chart-wrap .chart-title{font-size:13px;color:var(--muted);margin-bottom:12px;font-weight:500}
+    .chart-canvas{width:100%;height:220px;display:block}
+
+    .metrics-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px}
+    .metric-card{background:var(--card);border-radius:12px;padding:14px;text-align:center}
+    .metric-card .m-label{font-size:11px;color:var(--muted);margin-bottom:4px}
+    .metric-card .m-value{font-size:20px;font-weight:700}
+    .metric-card .m-value.good{color:var(--green)}
+    .metric-card .m-value.bad{color:var(--red)}
+    .metric-card .m-value.neutral{color:var(--text)}
+
+    .back-btn{width:100%;padding:14px;background:transparent;border:1.5px solid var(--line);border-radius:12px;color:var(--muted);font-size:14px;font-weight:600;cursor:pointer;margin-bottom:12px;transition:all .2s}
+    .back-btn:active{border-color:#3a5068;color:var(--text)}
+
+    /* === STEP 3: CTA (微信留资) === */
+    .cta-panel{text-align:center;padding:32px 0}
+    .cta-panel .check-icon{font-size:48px;margin-bottom:16px}
+    .cta-panel h2{font-size:22px;font-weight:800;margin-bottom:8px}
+    .cta-panel p{font-size:14px;color:var(--muted);line-height:1.6;margin-bottom:24px}
+    .cta-panel p strong{color:var(--text)}
+
+    .wechat-qr-wrap{margin:0 auto 20px;max-width:240px}
+    .wechat-qr-wrap img{width:100%;border-radius:12px;border:2px solid var(--line)}
+
+    .copy-wx-btn{display:inline-flex;align-items:center;gap:8px;padding:14px 28px;border:none;border-radius:12px;background:linear-gradient(135deg,#07c160,#06ad56);color:#fff;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:16px;transition:all .2s}
+    .copy-wx-btn:active{transform:scale(0.97)}
+    .copy-wx-btn .icon{font-size:18px}
+
+    .cta-guide{font-size:13px;color:var(--muted);line-height:1.8;margin-bottom:12px}
+    .cta-guide .step-num{display:inline-block;width:20px;height:20px;border-radius:50%;background:var(--blue);color:#fff;font-size:11px;font-weight:700;line-height:20px;text-align:center;margin-right:4px}
+    .cta-note{font-size:12px;color:#4a5a6e;margin-top:12px}
+
+    .wechat-id-text{font-size:16px;font-weight:700;color:var(--green);background:rgba(0,232,123,.08);border:1px solid rgba(0,232,123,.2);border-radius:10px;padding:12px 20px;display:inline-block;margin-bottom:16px;letter-spacing:1px}
+
+    /* === LOADING === */
+    .loading-overlay{position:fixed;inset:0;background:rgba(10,14,20,.92);z-index:100;display:none;align-items:center;justify-content:center;flex-direction:column}
+    .loading-overlay.show{display:flex}
+    .spinner{width:40px;height:40px;border:3px solid var(--line);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .loading-text{margin-top:16px;color:var(--muted);font-size:14px}
+
+    /* === ERROR === */
+    .error-msg{background:rgba(255,59,74,.1);border:1px solid rgba(255,59,74,.3);border-radius:10px;padding:12px 16px;color:var(--red);font-size:13px;margin-bottom:12px;display:none}
+    .error-msg.show{display:block}
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <!-- HERO -->
+  <div class="hero">
+    <h1>股票跌了不可怕<br>有策略，只回撤一点点</h1>
+    <p>输入任意股票代码，AI量化策略 vs 直线持有<br>3秒看清 <span class="highlight">差距有多大</span></p>
+  </div>
+
+  <!-- STEP DOTS -->
+  <div class="steps">
+    <div class="step-dot active" id="dot1"></div>
+    <div class="step-dot" id="dot2"></div>
+    <div class="step-dot" id="dot3"></div>
+  </div>
+
+  <!-- STEP 1: INPUT -->
+  <div class="panel active" id="step1">
+    <div class="input-box">
+      <label>股票代码</label>
+      <input type="text" class="code-input" id="stockCode" placeholder="例如 600519" maxlength="6" inputmode="numeric" />
+    </div>
+
+    <div class="profile-group">
+      <div class="profile-btn" data-profile="conservative" onclick="selectProfile(this)">
+        <span class="icon">🛡️</span>
+        <span class="name">保守</span>
+        <span class="desc">低回撤</span>
+      </div>
+      <div class="profile-btn selected" data-profile="moderate" onclick="selectProfile(this)">
+        <span class="icon">⚖️</span>
+        <span class="name">稳健</span>
+        <span class="desc">攻守兼备</span>
+      </div>
+      <div class="profile-btn" data-profile="aggressive" onclick="selectProfile(this)">
+        <span class="icon">🚀</span>
+        <span class="name">激进</span>
+        <span class="desc">高收益</span>
+      </div>
+    </div>
+
+    <div class="error-msg" id="errorMsg"></div>
+    <button class="run-btn" id="runBtn" onclick="runAnalysis()">开始分析</button>
+  </div>
+
+  <!-- STEP 2: RESULTS -->
+  <div class="panel" id="step2">
+    <div class="compare-banner">
+      <div class="compare-item">
+        <div class="label">直线持有</div>
+        <div class="value red" id="holdReturn">--</div>
+      </div>
+      <div class="compare-vs">VS</div>
+      <div class="compare-item">
+        <div class="label">策略收益</div>
+        <div class="value green" id="stratReturn">--</div>
+      </div>
+    </div>
+
+    <div class="chart-wrap">
+      <div class="chart-title">📈 收益曲线对比</div>
+      <canvas class="chart-canvas" id="chartCanvas"></canvas>
+      <div style="display:flex;justify-content:center;gap:20px;margin-top:10px">
+        <span style="font-size:12px;color:#5a6a7e"><span style="display:inline-block;width:20px;height:2px;background:#5a6a7e;vertical-align:middle;margin-right:4px"></span>持有</span>
+        <span style="font-size:12px;color:var(--green)"><span style="display:inline-block;width:20px;height:2px;background:var(--green);vertical-align:middle;margin-right:4px"></span>策略</span>
+      </div>
+    </div>
+
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="m-label">最大回撤</div>
+        <div class="m-value bad" id="mDD">--</div>
+      </div>
+      <div class="metric-card">
+        <div class="m-label">年化收益</div>
+        <div class="m-value" id="mAnnual">--</div>
+      </div>
+      <div class="metric-card">
+        <div class="m-label">夏普比率</div>
+        <div class="m-value neutral" id="mSharpe">--</div>
+      </div>
+      <div class="metric-card">
+        <div class="m-label">胜率</div>
+        <div class="m-value neutral" id="mWinRate">--</div>
+      </div>
+    </div>
+
+    <button class="back-btn" onclick="goStep(1)">← 重新分析</button>
+    <button class="run-btn" onclick="goStep(3)">📋 获取完整策略报告</button>
+  </div>
+
+  <!-- STEP 3: CTA (微信留资) -->
+  <div class="panel" id="step3">
+    <div class="cta-panel">
+      <div class="check-icon">✅</div>
+      <h2>专属策略报告已就绪</h2>
+      <p>扫码加微信，获取完整的<br><strong>个性化量化策略报告</strong></p>
+
+      <div class="cta-guide">
+        <span class="step-num">1</span> 长按识别下方二维码<br>
+        <span class="step-num">2</span> 发送股票代码获取完整报告
+      </div>
+
+      <div class="wechat-qr-wrap">
+        <img src="/zhuli/wechat.jpg" alt="微信二维码" onerror="this.parentElement.innerHTML='<p style=\'color:var(--red)\'>二维码加载失败，请手动添加微信号</p>'" />
+      </div>
+
+      <div class="wechat-id-text" id="wechatId">微信号：AIAgent888</div>
+      <br>
+      <button class="copy-wx-btn" onclick="copyWechatId()">
+        <span class="icon">📋</span> 复制微信号
+      </button>
+
+      <div class="cta-note">🔒 添加后发送股票代码，即刻获取专属报告</div>
+    </div>
+    <button class="back-btn" onclick="goStep(2)">← 返回查看结果</button>
+  </div>
+</div>
+
+<!-- LOADING -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loadingText">正在回测分析中...</div>
+</div>
+
+<script>
+  /* === 禁止window.open（微信webview兼容） === */
+  window.open = function() { return null; };
+
+  let selectedProfile = 'moderate';
+  let lastResult = null;
+
+  function selectProfile(el) {
+    document.querySelectorAll('.profile-btn').forEach(b => b.classList.remove('selected'));
+    el.classList.add('selected');
+    selectedProfile = el.dataset.profile;
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('errorMsg');
+    el.textContent = msg;
+    el.classList.add('show');
+  }
+
+  function hideError() {
+    document.getElementById('errorMsg').classList.remove('show');
+  }
+
+  function goStep(n) {
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('step' + n).classList.add('active');
+    document.querySelectorAll('.step-dot').forEach((d, i) => {
+      d.classList.toggle('active', i < n);
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function runAnalysis() {
+    hideError();
+    const code = document.getElementById('stockCode').value.trim();
+    if (!code || !/^\d{6}$/.test(code)) {
+      showError('请输入正确的6位股票代码');
+      return;
+    }
+
+    const btn = document.getElementById('runBtn');
+    btn.disabled = true;
+    document.getElementById('loadingOverlay').classList.add('show');
+
+    try {
+      const url = `/xuequ/bt/backtest?code=${code}&strategy=ma_cross&profile=${selectedProfile}`;
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error('接口返回错误');
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      lastResult = data;
+      renderResults(data);
+      goStep(2);
+    } catch (e) {
+      showError('分析失败：' + e.message + '。请检查股票代码是否正确。');
+    } finally {
+      btn.disabled = false;
+      document.getElementById('loadingOverlay').classList.remove('show');
+    }
+  }
+
+  function renderResults(data) {
+    const m = data.metrics;
+    const stratRet = m.total_return;
+    let holdRet = 0;
+    if (data.trades && data.trades.length > 0) {
+      const firstBuy = data.trades[0].buy_price;
+      const lastTrade = data.trades[data.trades.length - 1];
+      const lastSell = lastTrade.sell_price;
+      holdRet = ((lastSell - firstBuy) / firstBuy * 100);
+    }
+
+    document.getElementById('holdReturn').textContent = (holdRet >= 0 ? '+' : '') + holdRet.toFixed(1) + '%';
+    document.getElementById('stratReturn').textContent = (stratRet >= 0 ? '+' : '') + stratRet.toFixed(1) + '%';
+
+    const holdEl = document.getElementById('holdReturn');
+    const stratEl = document.getElementById('stratReturn');
+    holdEl.className = 'value ' + (holdRet < 0 ? 'red' : 'green');
+    stratEl.className = 'value ' + (stratRet < 0 ? 'red' : 'green');
+
+    document.getElementById('mDD').textContent = m.max_drawdown.toFixed(1) + '%';
+    const annualEl = document.getElementById('mAnnual');
+    annualEl.textContent = (m.annual_return >= 0 ? '+' : '') + m.annual_return.toFixed(1) + '%';
+    annualEl.className = 'm-value ' + (m.annual_return >= 0 ? 'good' : 'bad');
+    document.getElementById('mSharpe').textContent = m.sharpe_ratio.toFixed(2);
+    document.getElementById('mWinRate').textContent = m.win_rate.toFixed(0) + '%';
+
+    drawChart(data);
+  }
+
+  function drawChart(data) {
+    const canvas = document.getElementById('chartCanvas');
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    const W = rect.width, H = rect.height;
+
+    const equity = data.equity_curve;
+    if (!equity || equity.length < 2) return;
+
+    const base = equity[0].equity;
+    const stratPct = equity.map(p => ((p.equity - base) / base) * 100);
+
+    const holdPct = [];
+    if (data.trades && data.trades.length > 0) {
+      const firstPrice = data.trades[0].buy_price;
+      for (let i = 0; i < equity.length; i++) {
+        const t = i / (equity.length - 1);
+        const lastPrice = data.trades[data.trades.length - 1].sell_price;
+        const priceEst = firstPrice + (lastPrice - firstPrice) * t;
+        holdPct.push(((priceEst - firstPrice) / firstPrice) * 100);
+      }
+    }
+
+    const allPct = [...stratPct, ...holdPct];
+    const minP = Math.min(...allPct) * 1.15;
+    const maxP = Math.max(...allPct) * 1.15;
+    const range = maxP - minP || 1;
+
+    const pad = { top: 20, right: 16, bottom: 30, left: 48 };
+    const cW = W - pad.left - pad.right;
+    const cH = H - pad.top - pad.bottom;
+
+    function xPos(i) { return pad.left + (i / (equity.length - 1)) * cW; }
+    function yPos(v) { return pad.top + cH - ((v - minP) / range) * cH; }
+
+    ctx.strokeStyle = '#1a2535';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i <= 4; i++) {
+      const y = pad.top + (cH / 4) * i;
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+    }
+
+    ctx.fillStyle = '#4a5a6e';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= 4; i++) {
+      const v = maxP - (range / 4) * i;
+      const y = pad.top + (cH / 4) * i;
+      ctx.fillText(v.toFixed(1) + '%', pad.left - 6, y + 3);
+    }
+
+    ctx.textAlign = 'center';
+    const dates = equity.map(p => p.date);
+    const step = Math.max(1, Math.floor(dates.length / 4));
+    for (let i = 0; i < dates.length; i += step) {
+      ctx.fillText(dates[i].slice(5), xPos(i), H - 6);
+    }
+
+    if (minP < 0 && maxP > 0) {
+      ctx.strokeStyle = '#2a3a4e';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(pad.left, yPos(0)); ctx.lineTo(W - pad.right, yPos(0)); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    if (holdPct.length > 1) {
+      ctx.strokeStyle = '#5a6a7e';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(xPos(0), yPos(holdPct[0]));
+      for (let i = 1; i < holdPct.length; i++) ctx.lineTo(xPos(i), yPos(holdPct[i]));
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = '#00e87b';
+    ctx.lineWidth = 2.5;
+    ctx.shadowColor = 'rgba(0,232,123,.3)';
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.moveTo(xPos(0), yPos(stratPct[0]));
+    for (let i = 1; i < stratPct.length; i++) ctx.lineTo(xPos(i), yPos(stratPct[i]));
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    const last = stratPct.length - 1;
+    ctx.fillStyle = '#00e87b';
+    ctx.beginPath(); ctx.arc(xPos(last), yPos(stratPct[last]), 4, 0, Math.PI * 2); ctx.fill();
+    if (holdPct.length > 1) {
+      ctx.fillStyle = '#5a6a7e';
+      ctx.beginPath(); ctx.arc(xPos(last), yPos(holdPct[last]), 4, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  function copyWechatId() {
+    const wxId = 'AIAgent888';
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(wxId).then(() => {
+        showCopySuccess();
+      }).catch(() => {
+        fallbackCopy(wxId);
+      });
+    } else {
+      fallbackCopy(wxId);
+    }
+  }
+
+  function fallbackCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy');
+      showCopySuccess();
+    } catch(e) {
+      alert('请手动复制微信号：' + text);
+    }
+    document.body.removeChild(ta);
+  }
+
+  function showCopySuccess() {
+    const btn = document.querySelector('.copy-wx-btn');
+    btn.innerHTML = '<span class="icon">✅</span> 已复制';
+    btn.style.background = 'linear-gradient(135deg,#10b981,#059669)';
+    setTimeout(() => {
+      btn.innerHTML = '<span class="icon">📋</span> 复制微信号';
+      btn.style.background = '';
+    }, 2000);
+  }
+
+  // Enter key
+  document.getElementById('stockCode').addEventListener('keydown', e => {
+    if (e.key === 'Enter') runAnalysis();
+  });
+</script>
+</body>
+</html>
