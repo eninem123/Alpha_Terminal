@@ -1,4 +1,5 @@
 # Alpha Terminal v2 — AI量化策略获客系统
+<img width="431" height="877" alt="image" src="https://github.com/user-attachments/assets/8eccc63a-153b-46c1-b283-45f85eade56f" />
 
 > 输入任意股票代码，看AI风控策略如何帮你"跌少亏、涨跟上"
 
