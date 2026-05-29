@@ -1,1 +1,4 @@
-Page({onLoad(){}})
+Page({
+  onLoad() {
+  }
+})

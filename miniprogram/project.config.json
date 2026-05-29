@@ -1,1 +1,10 @@
-{"description":"AI理财策略助手","setting":{"urlCheck":false,"es6":true},"compileType":"miniprogram","appid":"","projectname":"alpha-terminal"}
+{
+  "description": "AI理财策略助手",
+  "setting": {
+    "urlCheck": false,
+    "es6": true
+  },
+  "compileType": "miniprogram",
+  "appid": "",
+  "projectname": "alpha-terminal"
+}

@@ -1,1 +1,4 @@
-App({onLaunch(){}})
+App({
+  onLaunch() {
+  }
+})
