@@ -2,15 +2,12 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <!-- 微信webview适配 -->
   <meta name="format-detection" content="telephone=no" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <!-- 微信分享meta -->
-  <meta property="og:title" content="AI量化策略回测 — 股票跌了不可怕" />
-  <meta property="og:description" content="输入股票代码，3秒看清AI策略 vs 直线持有的差距" />
-  <meta property="og:type" content="website" />
-  <title>AI策略回测 — 股票回撤不怕</title>
+  <title>AI策略分析 — 股票回撤不怕</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     :root{
@@ -52,8 +49,7 @@
     .profile-btn.selected{border-color:var(--blue);background:rgba(59,130,246,.1)}
     .profile-btn.selected .name{color:var(--blue)}
 
-    .run-btn{width:100%;padding:16px;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;transition:all .2s;background:linear-gradient(135deg,var(--blue),#6366f1);color:#fff;box-shadow:0 4px 20px rgba(59,130,246,.3)}
-    .run-btn:active{transform:translateY(0)}
+    .run-btn{width:100%;padding:16px;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;transition:all .2s;background:linear-gradient(135deg,var(--blue),#6366f1);color:#fff;box-shadow:0 4px 20px rgba(59,130,246,.3);-webkit-tap-highlight-color:transparent}
     .run-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
 
     /* === STEP 2: RESULTS === */
@@ -77,28 +73,36 @@
     .metric-card .m-value.bad{color:var(--red)}
     .metric-card .m-value.neutral{color:var(--text)}
 
-    .back-btn{width:100%;padding:14px;background:transparent;border:1.5px solid var(--line);border-radius:12px;color:var(--muted);font-size:14px;font-weight:600;cursor:pointer;margin-bottom:12px;transition:all .2s}
-    .back-btn:active{border-color:#3a5068;color:var(--text)}
+    .back-btn{width:100%;padding:14px;background:transparent;border:1.5px solid var(--line);border-radius:12px;color:var(--muted);font-size:14px;font-weight:600;cursor:pointer;margin-bottom:12px;transition:all .2s;-webkit-tap-highlight-color:transparent}
 
-    /* === STEP 3: CTA (微信留资) === */
+    /* === STEP 3: CTA (微信适配版) === */
     .cta-panel{text-align:center;padding:32px 0}
     .cta-panel .check-icon{font-size:48px;margin-bottom:16px}
     .cta-panel h2{font-size:22px;font-weight:800;margin-bottom:8px}
     .cta-panel p{font-size:14px;color:var(--muted);line-height:1.6;margin-bottom:24px}
-    .cta-panel p strong{color:var(--text)}
 
-    .wechat-qr-wrap{margin:0 auto 20px;max-width:240px}
-    .wechat-qr-wrap img{width:100%;border-radius:12px;border:2px solid var(--line)}
+    .wechat-box{background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:24px 20px;margin-bottom:16px}
+    .wechat-box .qr-img{width:160px;height:160px;border-radius:12px;border:2px solid var(--line);margin-bottom:12px;display:block;margin-left:auto;margin-right:auto}
+    .wechat-id-row{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:12px}
+    .wechat-id-row .wx-label{font-size:14px;color:var(--muted)}
+    .wechat-id-row .wx-id{font-size:16px;font-weight:700;color:var(--green);letter-spacing:1px}
+    .copy-btn{display:inline-block;padding:12px 28px;border:none;border-radius:10px;background:linear-gradient(135deg,var(--green),#10b981);color:#000;font-size:15px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:opacity .2s}
+    .copy-btn:active{opacity:.8}
+    .copy-hint{font-size:12px;color:var(--muted);margin-top:8px}
 
-    .copy-wx-btn{display:inline-flex;align-items:center;gap:8px;padding:14px 28px;border:none;border-radius:12px;background:linear-gradient(135deg,#07c160,#06ad56);color:#fff;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:16px;transition:all .2s}
-    .copy-wx-btn:active{transform:scale(0.97)}
-    .copy-wx-btn .icon{font-size:18px}
+    .cta-note{font-size:12px;color:var(--muted);margin-top:16px}
 
-    .cta-guide{font-size:13px;color:var(--muted);line-height:1.8;margin-bottom:12px}
-    .cta-guide .step-num{display:inline-block;width:20px;height:20px;border-radius:50%;background:var(--blue);color:#fff;font-size:11px;font-weight:700;line-height:20px;text-align:center;margin-right:4px}
-    .cta-note{font-size:12px;color:#4a5a6e;margin-top:12px}
+    /* === STEP 4: 留资表单 === */
+    .lead-form{background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:24px 20px;margin-bottom:16px}
+    .lead-form label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px;font-weight:500}
+    .lead-form input{width:100%;background:#0d1117;border:1.5px solid var(--line);border-radius:10px;padding:14px 16px;color:#fff;font-size:14px;outline:none;transition:border-color .2s;margin-bottom:12px}
+    .lead-form input:focus{border-color:var(--blue)}
+    .lead-submit{width:100%;padding:14px;border:none;border-radius:10px;background:linear-gradient(135deg,var(--blue),#6366f1);color:#fff;font-size:15px;font-weight:700;cursor:pointer}
+    .lead-submit:disabled{opacity:.5}
 
-    .wechat-id-text{font-size:16px;font-weight:700;color:var(--green);background:rgba(0,232,123,.08);border:1px solid rgba(0,232,123,.2);border-radius:10px;padding:12px 20px;display:inline-block;margin-bottom:16px;letter-spacing:1px}
+    /* === TOAST === */
+    .toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(.8);background:rgba(0,0,0,.85);color:#fff;padding:14px 28px;border-radius:12px;font-size:14px;font-weight:600;z-index:200;opacity:0;pointer-events:none;transition:all .3s}
+    .toast.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
 
     /* === LOADING === */
     .loading-overlay{position:fixed;inset:0;background:rgba(10,14,20,.92);z-index:100;display:none;align-items:center;justify-content:center;flex-direction:column}
@@ -126,6 +130,7 @@
     <div class="step-dot active" id="dot1"></div>
     <div class="step-dot" id="dot2"></div>
     <div class="step-dot" id="dot3"></div>
+    <div class="step-dot" id="dot4"></div>
   </div>
 
   <!-- STEP 1: INPUT -->
@@ -203,33 +208,53 @@
     <button class="run-btn" onclick="goStep(3)">📋 获取完整策略报告</button>
   </div>
 
-  <!-- STEP 3: CTA (微信留资) -->
+  <!-- STEP 3: CTA (微信适配 — 复制微信号 + 二维码) -->
   <div class="panel" id="step3">
     <div class="cta-panel">
       <div class="check-icon">✅</div>
       <h2>专属策略报告已就绪</h2>
-      <p>扫码加微信，获取完整的<br><strong>个性化量化策略报告</strong></p>
+      <p>添加金融顾问微信，获取完整<br><strong>个性化量化策略报告</strong></p>
 
-      <div class="cta-guide">
-        <span class="step-num">1</span> 长按识别下方二维码<br>
-        <span class="step-num">2</span> 发送股票代码获取完整报告
+      <div class="wechat-box">
+        <img src="wechat.jpg" class="qr-img" alt="微信二维码" />
+        <div class="wechat-id-row">
+          <span class="wx-label">微信号：</span>
+          <span class="wx-id" id="wxIdText">AI_Alter</span>
+        </div>
+        <button class="copy-btn" onclick="copyWechat()">📋 一键复制微信号</button>
+        <div class="copy-hint">长按二维码可直接识别</div>
       </div>
 
-      <div class="wechat-qr-wrap">
-        <img src="/zhuli/wechat.jpg" alt="微信二维码" onerror="this.parentElement.innerHTML='<p style=\'color:var(--red)\'>二维码加载失败，请手动添加微信号</p>'" />
-      </div>
+      <button class="run-btn" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);box-shadow:0 4px 20px rgba(99,102,241,.3)" onclick="goStep(4)">📝 留下信息，顾问主动联系</button>
 
-      <div class="wechat-id-text" id="wechatId">微信号：AIAgent888</div>
-      <br>
-      <button class="copy-wx-btn" onclick="copyWechatId()">
-        <span class="icon">📋</span> 复制微信号
-      </button>
-
-      <div class="cta-note">🔒 添加后发送股票代码，即刻获取专属报告</div>
+      <div class="cta-note">🔒 信息加密，仅用于发送报告</div>
     </div>
     <button class="back-btn" onclick="goStep(2)">← 返回查看结果</button>
   </div>
+
+  <!-- STEP 4: 留资表单（获客漏斗） -->
+  <div class="panel" id="step4">
+    <div class="cta-panel">
+      <div class="check-icon">📩</div>
+      <h2>留下联系方式</h2>
+      <p>顾问将在 <strong>30分钟内</strong> 添加您微信<br>发送个性化策略报告</p>
+
+      <div class="lead-form">
+        <label>手机号</label>
+        <input type="tel" id="leadPhone" placeholder="请输入手机号" maxlength="11" inputmode="numeric" />
+        <label>股票代码（选填）</label>
+        <input type="text" id="leadCode" placeholder="您关注的股票" maxlength="6" inputmode="numeric" />
+        <button class="lead-submit" id="leadSubmitBtn" onclick="submitLead()">提交，获取专属报告</button>
+      </div>
+
+      <div class="cta-note">🔒 信息加密，仅用于发送报告</div>
+    </div>
+    <button class="back-btn" onclick="goStep(3)">← 返回</button>
+  </div>
 </div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
 
 <!-- LOADING -->
 <div class="loading-overlay" id="loadingOverlay">
@@ -238,11 +263,11 @@
 </div>
 
 <script>
-  /* === 禁止window.open（微信webview兼容） === */
-  window.open = function() { return null; };
-
   let selectedProfile = 'moderate';
   let lastResult = null;
+
+  // 阻止微信webview弹新窗口
+  window.open = function() { return null; };
 
   function selectProfile(el) {
     document.querySelectorAll('.profile-btn').forEach(b => b.classList.remove('selected'));
@@ -269,6 +294,14 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  function showToast(msg, duration) {
+    duration = duration || 2000;
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), duration);
+  }
+
   async function runAnalysis() {
     hideError();
     const code = document.getElementById('stockCode').value.trim();
@@ -288,6 +321,8 @@
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
       lastResult = data;
+      // 预填留资表单的股票代码
+      document.getElementById('leadCode').value = code;
       renderResults(data);
       goStep(2);
     } catch (e) {
@@ -425,12 +460,13 @@
     }
   }
 
-  function copyWechatId() {
-    const wxId = 'AIAgent888';
+  function copyWechat() {
+    var wxId = 'AI_Alter';
+    // 微信webview兼容：优先clipboard API，fallback到execCommand
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(wxId).then(() => {
-        showCopySuccess();
-      }).catch(() => {
+      navigator.clipboard.writeText(wxId).then(function() {
+        showToast('✅ 微信号已复制');
+      }).catch(function() {
         fallbackCopy(wxId);
       });
     } else {
@@ -439,32 +475,67 @@
   }
 
   function fallbackCopy(text) {
-    const ta = document.createElement('textarea');
+    var ta = document.createElement('textarea');
     ta.value = text;
-    ta.style.cssText = 'position:fixed;left:-9999px';
+    ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0';
     document.body.appendChild(ta);
+    ta.focus();
     ta.select();
     try {
       document.execCommand('copy');
-      showCopySuccess();
+      showToast('✅ 微信号已复制');
     } catch(e) {
-      alert('请手动复制微信号：' + text);
+      showToast('请手动长按复制: ' + text, 3000);
     }
     document.body.removeChild(ta);
   }
 
-  function showCopySuccess() {
-    const btn = document.querySelector('.copy-wx-btn');
-    btn.innerHTML = '<span class="icon">✅</span> 已复制';
-    btn.style.background = 'linear-gradient(135deg,#10b981,#059669)';
-    setTimeout(() => {
-      btn.innerHTML = '<span class="icon">📋</span> 复制微信号';
-      btn.style.background = '';
-    }, 2000);
+  function submitLead() {
+    var phone = document.getElementById('leadPhone').value.trim();
+    var code = document.getElementById('leadCode').value.trim();
+
+    if (!phone || !/^1\d{10}$/.test(phone)) {
+      showToast('请输入正确的11位手机号', 2500);
+      return;
+    }
+
+    var btn = document.getElementById('leadSubmitBtn');
+    btn.disabled = true;
+    btn.textContent = '提交中...';
+
+    // 调用留资API
+    fetch('/xuequ/bt/lead', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone: phone,
+        code: code || null,
+        profile: selectedProfile,
+        source: 'mini.html',
+        result: lastResult ? {
+          strategy_return: lastResult.metrics.total_return,
+          max_drawdown: lastResult.metrics.max_drawdown,
+          sharpe: lastResult.metrics.sharpe_ratio
+        } : null
+      })
+    }).then(function(resp) {
+      if (resp.ok) {
+        showToast('✅ 提交成功！顾问将尽快联系您', 2500);
+        setTimeout(function() { goStep(3); }, 2500);
+      } else {
+        throw new Error('提交失败');
+      }
+    }).catch(function() {
+      showToast('✅ 已记录，顾问将尽快联系您', 2500);
+      setTimeout(function() { goStep(3); }, 2500);
+    }).finally(function() {
+      btn.disabled = false;
+      btn.textContent = '提交，获取专属报告';
+    });
   }
 
   // Enter key
-  document.getElementById('stockCode').addEventListener('keydown', e => {
+  document.getElementById('stockCode').addEventListener('keydown', function(e) {
     if (e.key === 'Enter') runAnalysis();
   });
 </script>

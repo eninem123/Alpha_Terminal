@@ -172,6 +172,35 @@ def run_single_backtest(code, strategy_key, start, end, initial_capital=100000, 
 
 
 class Handler(BaseHTTPRequestHandler):
+    LEADS_FILE = "/var/www/zhuli/leads.json"
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/leads":
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length).decode()
+            try:
+                lead = json.loads(body)
+            except:
+                self._json({"ok": False, "error": "invalid json"}, 400); return
+
+            # Read existing leads
+            leads = []
+            if os.path.exists(self.LEADS_FILE):
+                try:
+                    with open(self.LEADS_FILE, "r") as f:
+                        leads = json.load(f)
+                except:
+                    leads = []
+
+            leads.append(lead)
+            with open(self.LEADS_FILE, "w") as f:
+                json.dump(leads, f, ensure_ascii=False, indent=2)
+
+            self._json({"ok": True, "count": len(leads)})
+        else:
+            self._json({"error": "not found"}, 404)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         params = parse_qs(parsed.query)
