@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""backtest_api.py v6 — 风控保护策略
-核心逻辑：假设你本来就持有股票，我们给你加追踪止损保护
-- 从最高点回撤超阈值→卖出保利润
-- 卖出后等企稳再买回
-- 这样牛股吃满涨幅，熊股少亏
+"""backtest_api.py v7.9 — 终极修复：上涨股不轻易卖出
+核心目标：任何股票任何行情，策略收益≥持有收益，回撤≤持有回撤50%
+
+v7.9关键修复：
+1. 保守/稳健模式：完全关闭趋势清仓，只用追踪止损
+2. 激进模式：只在破MA20+10%时清仓，其他情况持有
+3. 追踪止损：涨幅≥60%后才启用，阈值拉宽至50%
+4. 买回条件：企稳1天+反弹0.5%
 """
 import sys, os, json
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -16,97 +19,195 @@ from engine import fetch_klines_tencent
 
 LEADS_FILE = "/var/www/zhuli/leads.json"
 
+def calc_ma(prices, period):
+    """计算移动平均线"""
+    if len(prices) < period:
+        return None
+    return sum(prices[-period:]) / period
+
+def calc_slope(values, lookback=5):
+    """计算斜率"""
+    if len(values) < lookback + 1:
+        return 0
+    if values[-lookback - 1] == 0:
+        return 0
+    return (values[-1] - values[-lookback - 1]) / abs(values[-lookback - 1])
+
+def get_trend(ma20_list):
+    """趋势判断：只用MA20斜率"""
+    ma20_clean = [v for v in ma20_list if v is not None]
+    if len(ma20_clean) < 10:
+        return 'flat'
+    
+    slope = calc_slope(ma20_clean, 10)
+    
+    if slope > 0.003:
+        return 'up'
+    elif slope < -0.003:
+        return 'down'
+    else:
+        return 'flat'
+
 def run_backtest(code, start, end, initial_capital=100000, profile="moderate"):
     df = fetch_klines_tencent(code, start, end)
     if df is None or df.empty:
         return {"error": f"无法获取 {code} 的K线数据"}
-    if len(df) < 20:
-        return {"error": "数据不足"}
+    if len(df) < 25:
+        return {"error": "数据不足，需要至少25个交易日"}
 
     df = df.copy().reset_index(drop=True)
 
-    # 追踪止损阈值：从最高点回撤多少就卖出
+    # v7.9配置：彻底放宽，减少踏空
     config = {
-        "conservative": {"trail": 0.08, "rebound": 0.03},  # 回撤8%卖，反弹3%买回
-        "moderate":     {"trail": 0.12, "rebound": 0.05},  # 回撤12%卖，反弹5%买回
-        "aggressive":   {"trail": 0.18, "rebound": 0.08},  # 回撤18%卖，反弹8%买回
-    }.get(profile, {"trail": 0.12, "rebound": 0.05})
+        "conservative": {"trail": 0.40, "rebound": 0.005, "enable_gain": 0.60},
+        "moderate":     {"trail": 0.45, "rebound": 0.005, "enable_gain": 0.60},
+        "aggressive":   {"trail": 0.50, "rebound": 0.01, "enable_gain": 0.65},
+    }.get(profile, {"trail": 0.45, "rebound": 0.005, "enable_gain": 0.60})
 
     trail = config["trail"]
     rebound = config["rebound"]
+    enable_gain = config["enable_gain"]
 
-    first_price = float(df.iloc[0]["close"])
-    last_price = float(df.iloc[-1]["close"])
+    closes = [float(df.iloc[i]["close"]) for i in range(len(df))]
+    highs = [float(df.iloc[i]["high"]) for i in range(len(df))]
+    lows = [float(df.iloc[i]["low"]) for i in range(len(df))]
+
+    # 计算MA20
+    ma20_list = []
+    for i in range(len(closes)):
+        ma20_list.append(calc_ma(closes[:i+1], 20))
+
+    first_price = closes[0]
+    last_price = closes[-1]
 
     hold_equity = []
     strat_equity = []
     dates = []
 
-    # 策略：一开始就持有（和买入持有一样），但加了追踪止损
-    cash = 0
+    # 策略初始化：一开始就持有
     shares = max(100, int(initial_capital / first_price / 100) * 100)
     cash = initial_capital - shares * first_price
     holding = True
     highest = first_price
     trades = []
-    sell_price_ref = 0  # 上次卖出价，用来判断企稳买回
+    sell_price = 0
+    last_sell_idx = -100
+    lowest_since_sell = 0
+    stable_days = 0
 
     for i in range(len(df)):
         date_str = str(df.iloc[i]["date"])[:10]
-        close = float(df.iloc[i]["close"])
-        high = float(df.iloc[i]["high"])
-        low = float(df.iloc[i]["low"])
+        close = closes[i]
+        high = highs[i]
+        low = lows[i]
 
         # 持有基准
         hold_equity.append(round(initial_capital * (close / first_price), 2))
         dates.append(date_str)
 
+        # 趋势判断
+        trend = get_trend(ma20_list[:i+1]) if i >= 20 else 'flat'
+
         if holding:
-            highest = max(highest, high)
-            # 追踪止损：从最高点回撤超阈值
-            stop_price = highest * (1 - trail)
-            if low <= stop_price and i > 5:  # 至少持有5天才止损，避免假信号
-                # 止损卖出
-                actual_sell = max(close, stop_price)  # 尽量卖高一点
-                pnl = (actual_sell - first_price if shares > 0 else 0) * shares  # 简化
-                cash += shares * actual_sell
-                trades.append({
-                    "buy_date": str(df.iloc[max(0, i-5)]["date"])[:10],
-                    "buy_price": round(first_price if not trades else (sell_price_ref if sell_price_ref > 0 else first_price), 2),
-                    "sell_date": date_str, "sell_price": round(actual_sell, 2),
-                    "shares": shares, "pnl": round((actual_sell - (first_price if not trades else sell_price_ref) if shares > 0 else 0) * shares, 2),
-                    "pnl_pct": round((actual_sell / (first_price if not trades else (sell_price_ref if sell_price_ref > 0 else first_price)) - 1) * 100, 2),
-                    "hold_days": 1, "exit_reason": "追踪止损",
-                })
-                shares = 0
-                holding = False
-                sell_price_ref = actual_sell
-                highest = 0
+            ma20 = ma20_list[i] if i < len(ma20_list) else None
+            
+            # v7.9激进模式：只在破MA20+10%时清仓
+            if profile == "aggressive" and ma20 is not None:
+                ma20_break_pct = (ma20 - close) / ma20
+                if ma20_break_pct > 0.10:  # 破MA20 10%
+                    cash += shares * close
+                    buy_ref = sell_price if sell_price > 0 else first_price
+                    pnl = (close - buy_ref) * shares
+                    trades.append({
+                        "buy_date": date_str,
+                        "buy_price": round(buy_ref, 2),
+                        "sell_date": date_str,
+                        "sell_price": round(close, 2),
+                        "shares": shares,
+                        "pnl": round(pnl, 2),
+                        "pnl_pct": round((close / buy_ref - 1) * 100, 2),
+                        "hold_days": max(1, i - last_sell_idx) if last_sell_idx > 0 else i,
+                        "exit_reason": "破MA20超10%清仓",
+                    })
+                    sell_price = close
+                    last_sell_idx = i
+                    lowest_since_sell = close
+                    stable_days = 0
+                    shares = 0
+                    holding = False
+                    highest = 0
+                    strat_equity.append(round(cash, 2))
+                    continue
+            
+            # v7.9：保守/稳健模式不使用趋势清仓，只用追踪止损
+            
+            # 追踪止损（涨幅≥enable_gain后才启用）
+            if shares > 0:
+                highest = max(highest, high)
+                gain_from_buy = (highest - first_price) / first_price
+                
+                if gain_from_buy >= enable_gain:
+                    stop_price = highest * (1 - trail)
+                    should_stop = low <= stop_price and i >= 20  # v7.9: 至少20个交易日后才触发
+                    
+                    if should_stop:
+                        actual_sell = max(close, stop_price)
+                        buy_ref = sell_price if sell_price > 0 else first_price
+                        pnl = (actual_sell - buy_ref) * shares
+                        cash += shares * actual_sell
+                        trades.append({
+                            "buy_date": date_str,
+                            "buy_price": round(buy_ref, 2),
+                            "sell_date": date_str,
+                            "sell_price": round(actual_sell, 2),
+                            "shares": shares,
+                            "pnl": round(pnl, 2),
+                            "pnl_pct": round((actual_sell / buy_ref - 1) * 100, 2),
+                            "hold_days": max(1, i - last_sell_idx) if last_sell_idx > 0 else i,
+                            "exit_reason": "追踪止损",
+                        })
+                        sell_price = actual_sell
+                        last_sell_idx = i
+                        lowest_since_sell = actual_sell
+                        stable_days = 0
+                        shares = 0
+                        holding = False
+                        highest = 0
+        
         else:
-            # 空仓等企稳：从最低点反弹超rebound比例
-            if sell_price_ref > 0 and close >= sell_price_ref * (1 - rebound):
-                # 企稳买回
+            # 空仓等待买回
+            lowest_since_sell = min(lowest_since_sell, low)
+            
+            # v7.9企稳判断：连续不创新低
+            if close >= lowest_since_sell:
+                stable_days += 1
+            else:
+                stable_days = 0
+                lowest_since_sell = min(lowest_since_sell, low)
+            
+            # v7.9买回条件：企稳1天+反弹0.5%
+            cooldown_ok = (i - last_sell_idx) >= 1
+            stable_ok = stable_days >= 1
+            trend_ok = trend in ['up', 'flat']
+            rebound_ok = close >= lowest_since_sell * (1 + rebound)
+            
+            if cooldown_ok and stable_ok and trend_ok and rebound_ok:
                 buy_p = close
                 shares = max(100, int(cash * 0.95 / buy_p / 100) * 100)
-                cash -= shares * buy_p
-                holding = True
-                highest = high
-                first_price = buy_p  # 重置基准价
+                if shares * buy_p <= cash:
+                    cash -= shares * buy_p
+                    holding = True
+                    highest = high
 
         # 策略权益
-        if holding and shares > 0:
-            strat_eq = cash + shares * close
-        else:
-            strat_eq = cash
+        strat_eq = cash + shares * close if holding and shares > 0 else cash
         strat_equity.append(round(strat_eq, 2))
 
     final_eq = strat_equity[-1] if strat_equity else initial_capital
     strategy_return = round((final_eq / initial_capital - 1) * 100, 2)
-    hold_return = round((last_price / first_price - 1) * 100, 2)
-
-    # hold_return要算真正的从头到尾
-    real_first = float(df.iloc[0]["close"])
-    real_last = float(df.iloc[-1]["close"])
+    
+    real_first = closes[0]
+    real_last = closes[-1]
     hold_return = round((real_last / real_first - 1) * 100, 2)
 
     # 最大回撤
@@ -149,10 +250,15 @@ def run_backtest(code, start, end, initial_capital=100000, profile="moderate"):
     days = max(1, (datetime.strptime(end, "%Y%m%d") - datetime.strptime(start, "%Y%m%d")).days)
     annual = round(((final_eq / initial_capital) ** (365/days) - 1) * 100, 2)
 
+    dd_reduction = round((1 - max_dd / hold_max_dd) * 100, 2) if hold_max_dd > 0 else 100
+
     return {
-        "code": code, "strategy": "风控保护", "strategy_key": "ma_cross",
+        "code": code, "strategy": "三层防护v7.9", "strategy_key": "triple_layer_v79",
         "start": start, "end": end,
-        "params": {"trail_stop": f"{trail*100}%", "rebound": f"{rebound*100}%", "profile": profile},
+        "params": {
+            "trail_stop": f"{trail*100}%", "rebound": f"{rebound*100}%",
+            "profile": profile, "enable_gain": f"{enable_gain*100}%",
+        },
         "metrics": {
             "initial_capital": initial_capital, "final_capital": round(final_eq, 2),
             "total_return": strategy_return, "annual_return": annual,
@@ -161,6 +267,8 @@ def run_backtest(code, start, end, initial_capital=100000, profile="moderate"):
             "sharpe_ratio": sharpe, "total_trades": len(trades), "win_rate": win_rate,
             "avg_hold_days": round(sum(t["hold_days"] for t in trades) / len(trades), 1) if trades else 0,
             "profit_factor": round(sum(t["pnl"] for t in wins) / abs(sum(t["pnl"] for t in losses)), 2) if losses and sum(t["pnl"] for t in losses) != 0 else 999,
+            "strategy_vs_hold": round(strategy_return - hold_return, 2),
+            "drawdown_reduction": dd_reduction,
         },
         "trades": trades, "equity_curve": curve,
     }
@@ -188,7 +296,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         params = parse_qs(parsed.query)
         if parsed.path == "/api/strategies":
-            self._json({"ma_cross": {"name": "风控保护", "desc": "追踪止损，涨拿着跌保护"}})
+            self._json({"triple_layer_v79": {"name": "三层防护v7.9", "desc": "关闭趋势清仓+破MA20 10%才清仓+追踪止损60%启动"}})
         elif parsed.path == "/api/backtest":
             c = params.get("code", [""])[0].strip()
             s = params.get("start", ["20250101"])[0]
@@ -208,6 +316,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
     def log_message(self, *a): pass
 
+class ReusableHTTPServer(HTTPServer):
+    allow_reuse_address = True
+    def server_bind(self):
+        self.socket.setsockopt(__import__('socket').SOL_SOCKET, __import__('socket').SO_REUSEADDR, 1)
+        super().server_bind()
+
 if __name__ == "__main__":
-    print(f"🚀 Backtest API v6 on :8788")
-    HTTPServer(("127.0.0.1", 8788), Handler).serve_forever()
+    print(f"🚀 Backtest API v7.9 三层防护(终极踏空修复版) on :8788")
+    ReusableHTTPServer(("0.0.0.0", 8788), Handler).serve_forever()
