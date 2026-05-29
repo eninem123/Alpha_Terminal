@@ -1,6 +1,7 @@
 # Alpha Terminal（数据分析终端）
 
 移动端 H5 单页：输入沪深北交所 A 股六位代码与基准数额后，拉取公开行情并做可视化展示。**纯静态资源**，可部署到任意静态托管（GitHub Pages、OSS、Nginx 等）。
+<img width="576" height="667" alt="image" src="https://github.com/user-attachments/assets/1386720d-509f-4b9a-863d-6f6a1a59c605" />
 
 ## 功能概览
 
