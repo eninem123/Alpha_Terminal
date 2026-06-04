@@ -1,10 +1,38 @@
 {
-  "description": "AI理财策略助手",
+  "description": "AI策略分析助手",
   "setting": {
     "urlCheck": false,
-    "es6": true
+    "es6": true,
+    "postcss": false,
+    "compileWorklet": false,
+    "minified": false,
+    "uglifyFileName": false,
+    "uploadWithSourceMap": true,
+    "enhance": false,
+    "packNpmManually": false,
+    "packNpmRelationList": [],
+    "minifyWXSS": true,
+    "minifyWXML": true,
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "useCompilerPlugins": false,
+    "condition": false,
+    "swc": false,
+    "disableSWC": true,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
   },
   "compileType": "miniprogram",
-  "appid": "",
-  "projectname": "alpha-terminal"
+  "appid": "wx1b0a98da1a8a1d82",
+  "projectname": "alpha-terminal",
+  "libVersion": "3.16.0",
+  "simulatorPluginLibVersion": {},
+  "packOptions": {
+    "ignore": [],
+    "include": []
+  },
+  "editorSetting": {}
 }
