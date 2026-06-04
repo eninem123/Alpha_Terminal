@@ -81,17 +81,49 @@ python3 backtest_api.py  # 端口8788
 | 文件 | 说明 |
 |------|------|
 | index.html | 主获客页面 |
-| mini.html | 小程序适配版 |
+| mini.html | 小程序 web-view 页面（合规版） |
+| privacy.html | 用户隐私保护指引 |
+| miniprogram/ | 微信小程序壳（web-view 加载 mini.html） |
 | backtest_api.py | 回测API v4 |
 | wechat.jpg | 微信二维码 |
 | core.js | 旧版K线页面(保留) |
 | README_v1.md | v1版README(归档) |
+
+## 🌿 分支说明
+
+本仓库远程有两个分支，用途不同，**日常开发与部署请只用 `main`**。
+
+| 分支 | 状态 | 说明 |
+|------|------|------|
+| **`main`** | ✅ 活跃主线 | 当前产品代码：回测获客、mini.html、微信小程序、backtest_api 等。**所有新功能、修复、发布均提交并推送到此分支。** |
+| **`master`** | 📦 历史备份 | 旧版 IMA 知识库问答相关代码（行情快照、知识库缓存等）。**项目已不再使用 IMA，此分支仅作备份保留，不合并、不维护、不部署。** |
+
+```bash
+# 克隆后默认在 main
+git clone git@github.com:eninem123/Alpha_Terminal.git
+cd Alpha_Terminal
+
+# 日常：只在 main 上开发并推送
+git checkout main
+git pull origin main
+# ... 修改代码 ...
+git add .
+git commit -m "your message"
+git push origin main
+
+# 如需查看旧 IMA 实现（只读参考，不要合并）
+git fetch origin
+git log origin/master --oneline
+```
+
+> **注意：** `main` 与 `master` 无共同 Git 历史（`master` 为独立根提交），请勿对 `master` 做 merge/rebase；需要旧代码时单独 checkout 查阅即可。
 
 ## ⚠️ 注意
 
 - 留资数据存在服务器 `/var/www/zhuli/leads.json`
 - 微信号: XLN31689
 - 回测结果仅供获客展示，不构成投资建议
+- 小程序页面：`miniprogram/` 上传微信开发者工具；线上 H5 需同步部署 `mini.html` 与 `privacy.html` 到 `/var/www/zhuli/`
 
 ---
 
