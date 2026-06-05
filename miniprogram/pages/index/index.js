@@ -1,4 +1,7 @@
 Page({
-  onLoad() {
+  enterTool() {
+    wx.navigateTo({
+      url: '/pages/webview/webview'
+    })
   }
 })

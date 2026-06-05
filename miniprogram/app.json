@@ -1,9 +1,10 @@
 {
   "pages": [
-    "pages/index/index"
+    "pages/index/index",
+    "pages/webview/webview"
   ],
   "window": {
-    "navigationBarTitleText": "AI策略记录助理",
+    "navigationBarTitleText": "策略记录助理",
     "navigationBarBackgroundColor": "#0f172a",
     "navigationBarTextStyle": "white",
     "backgroundColor": "#0f172a"

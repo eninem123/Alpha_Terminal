@@ -1,5 +1,5 @@
 {
-  "description": "AI策略分析助手",
+  "description": "策略记录助理：内部量化策略回测记录与复盘存档工具",
   "setting": {
     "urlCheck": false,
     "es6": true,
