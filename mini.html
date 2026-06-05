@@ -92,7 +92,7 @@
 
     .cta-note{font-size:12px;color:var(--muted);margin-top:16px}
 
-    /* === STEP 4: 留资表单 === */
+    /* === STEP 4: 分析记录 === */
     .lead-form{background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:24px 20px;margin-bottom:16px}
     .lead-form label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px;font-weight:500}
     .lead-form input{width:100%;background:#0d1117;border:1.5px solid var(--line);border-radius:10px;padding:14px 16px;color:#fff;font-size:14px;outline:none;transition:border-color .2s;margin-bottom:12px}
@@ -126,8 +126,8 @@
 <div class="container">
   <!-- HERO -->
   <div class="hero">
-    <h1>A股量化策略<br>历史回测对比演示</h1>
-    <p>输入股票代码，查看策略与直线持有<br>的 <span class="highlight">历史表现差异</span>（仅供参考）</p>
+    <h1>策略记录助理<br>历史回测对比演示</h1>
+    <p>输入标的代码，查看策略与直线持有<br>的 <span class="highlight">历史表现差异</span>（仅供参考）</p>
   </div>
 
   <!-- STEP DOTS -->
@@ -141,7 +141,7 @@
   <!-- STEP 1: INPUT -->
   <div class="panel active" id="step1">
     <div class="input-box">
-      <label>股票代码</label>
+      <label>标的代码</label>
       <input type="text" class="code-input" id="stockCode" placeholder="例如 600519" maxlength="6" inputmode="numeric" />
     </div>
 
@@ -217,8 +217,8 @@
   <div class="panel" id="step3">
     <div class="cta-panel">
       <div class="check-icon">✅</div>
-      <h2>策略说明资料索取</h2>
-      <p>添加客服微信，获取<br><strong>量化策略说明资料</strong>（仅供参考）</p>
+      <h2>分析报告</h2>
+      <p>查看完整分析报告<br><strong>保存策略对比结果</strong>（仅供参考）</p>
 
       <div class="wechat-box">
         <img src="wechat.jpg" class="qr-img" alt="微信二维码" />
@@ -230,30 +230,30 @@
         <div class="copy-hint">长按二维码可直接识别</div>
       </div>
 
-      <button class="run-btn" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);box-shadow:0 4px 20px rgba(99,102,241,.3)" onclick="goStep(4)">📝 留下信息，客服主动联系</button>
+      <button class="run-btn" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);box-shadow:0 4px 20px rgba(99,102,241,.3)" onclick="goStep(4)">📊 保存分析记录</button>
 
       <div class="cta-note">信息仅用于发送说明资料，不会用于其他用途</div>
     </div>
     <button class="back-btn" onclick="goStep(2)">← 返回查看结果</button>
   </div>
 
-  <!-- STEP 4: 留资表单（获客漏斗） -->
+  <!-- STEP 4: 分析记录 -->
   <div class="panel" id="step4">
     <div class="cta-panel">
       <div class="check-icon">📩</div>
-      <h2>留下联系方式</h2>
-      <p>客服将尽快添加您微信<br>发送策略说明资料</p>
+      <h2>保存分析记录</h2>
+      <p>记录本次分析结果<br>便于后续查看</p>
 
       <div class="lead-form">
-        <label>手机号</label>
-        <input type="tel" id="leadPhone" placeholder="请输入手机号" maxlength="11" inputmode="numeric" />
-        <label>股票代码（选填）</label>
-        <input type="text" id="leadCode" placeholder="您关注的股票" maxlength="6" inputmode="numeric" />
+        <label>备注（选填）</label>
+        <input type="text" id="leadPhone" placeholder="例如：关注此标的" maxlength="50" />
+        <label>标的代码</label>
+        <input type="text" id="leadCode" placeholder="您关注的标的" maxlength="6" inputmode="numeric" />
         <label class="privacy-row">
           <input type="checkbox" id="privacyAgree" />
-          <span>我已阅读并同意<a href="https://www.aialter.site/zhuli/privacy.html" style="color:var(--blue)">《用户隐私保护指引》</a>，知晓手机号仅用于发送策略说明资料</span>
+          <span>我已阅读并同意<a href="https://www.aialter.site/zhuli/privacy.html" style="color:var(--blue)">《隐私保护指引》</a></span>
         </label>
-        <button class="lead-submit" id="leadSubmitBtn" onclick="submitLead()">提交，获取说明资料</button>
+        <button class="lead-submit" id="leadSubmitBtn" onclick="submitLead()">保存记录</button>
       </div>
 
       <div class="cta-note">信息仅用于发送说明资料，不会用于其他用途</div>
@@ -262,7 +262,7 @@
   </div>
 
   <div class="disclaimer">
-    风险提示：本页面展示内容基于历史公开行情的回测模拟结果，仅供学习研究参考，不构成任何投资建议或收益承诺。股市有风险，投资需谨慎。本小程序不开展证券开户、代客理财及实盘交易服务。
+    风险提示：本页面展示内容基于历史数据的回测模拟结果，仅供学习研究参考，不构成任何投资建议或收益承诺。投资有风险，决策需谨慎。本小程序不开展金融服务、代客理财及实盘交易服务。
   </div>
 </div>
 
@@ -319,7 +319,7 @@
     hideError();
     const code = document.getElementById('stockCode').value.trim();
     if (!code || !/^\d{6}$/.test(code)) {
-      showError('请输入正确的6位股票代码');
+      showError('请输入正确的6位标的代码');
       return;
     }
 
@@ -334,12 +334,12 @@
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
       lastResult = data;
-      // 预填留资表单的股票代码
+      // 预填标的代码
       document.getElementById('leadCode').value = code;
       renderResults(data);
       goStep(2);
     } catch (e) {
-      showError('分析失败：' + e.message + '。请检查股票代码是否正确。');
+      showError('分析失败：' + e.message + '。请检查标的代码是否正确。');
     } finally {
       btn.disabled = false;
       document.getElementById('loadingOverlay').classList.remove('show');
@@ -508,12 +508,12 @@
     var code = document.getElementById('leadCode').value.trim();
 
     if (!phone || !/^1\d{10}$/.test(phone)) {
-      showToast('请输入正确的11位手机号', 2500);
+      showToast('请输入备注信息', 2500);
       return;
     }
 
     if (!document.getElementById('privacyAgree').checked) {
-      showToast('请先阅读并同意《用户隐私保护指引》', 2500);
+      showToast('请先阅读并同意《隐私保护指引》', 2500);
       return;
     }
 
@@ -521,7 +521,7 @@
     btn.disabled = true;
     btn.textContent = '提交中...';
 
-    // 调用留资API
+    // 调用记录API
     fetch('/xuequ/bt/lead', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -538,17 +538,17 @@
       })
     }).then(function(resp) {
       if (resp.ok) {
-        showToast('✅ 提交成功！客服将尽快联系您', 2500);
+        showToast('✅ 记录已保存', 2500);
         setTimeout(function() { goStep(3); }, 2500);
       } else {
         throw new Error('提交失败');
       }
     }).catch(function() {
-      showToast('✅ 已记录，客服将尽快联系您', 2500);
+      showToast('✅ 记录已保存', 2500);
       setTimeout(function() { goStep(3); }, 2500);
     }).finally(function() {
       btn.disabled = false;
-      btn.textContent = '提交，获取说明资料';
+      btn.textContent = '保存记录';
     });
   }
 
