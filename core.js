@@ -568,50 +568,33 @@
       onFail();
       return;
     }
-    const cb = "_alphaNewsCb" + String(Date.now());
-    const script = document.createElement("script");
+    _newsRollPage = (_newsRollPage % 10) + 1;
+    const url = "/api/sina/roll?page=" + _newsRollPage;
     let settled = false;
-    function doneOk(payload) {
-      if (settled) return;
-      settled = true;
-      try {
-        clearTimeout(tid);
-      } catch (e0) {}
-      try {
-        delete window[cb];
-        if (script.parentNode) script.parentNode.removeChild(script);
-      } catch (e1) {}
-      onOk(payload);
-    }
-    function doneFail() {
+    const tid = setTimeout(function () {
       if (settled) return;
       settled = true;
       _sinaRollFailed = true;
-      try {
-        clearTimeout(tid);
-      } catch (e0b) {}
-      try {
-        delete window[cb];
-      } catch (e2) {}
-      try {
-        if (script.parentNode) script.parentNode.removeChild(script);
-      } catch (e3) {}
       onFail();
-    }
-    window[cb] = function (payload) {
-      doneOk(payload);
-    };
-    script.onerror = doneFail;
-    _newsRollPage = (_newsRollPage % 10) + 1;
-    script.src =
-      SINA_ROLL_URL +
-      _newsRollPage +
-      "&callback=" +
-      cb +
-      "&_=" +
-      Date.now();
-    const tid = setTimeout(doneFail, 12000);
-    document.body.appendChild(script);
+    }, 12000);
+    fetch(url)
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (payload) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(tid);
+        onOk(payload);
+      })
+      .catch(function () {
+        if (settled) return;
+        settled = true;
+        _sinaRollFailed = true;
+        clearTimeout(tid);
+        onFail();
+      });
   }
 
   function parseSinaRoll(payload) {
@@ -693,6 +676,13 @@
     if (!newsMarqueeTrackEl) return;
     newsMarqueeTrackEl.innerHTML = "";
     newsMarqueeTrackEl.removeAttribute("style");
+    // 添加新闻项class用于悬浮效果
+    const styleEl = document.createElement("style");
+    styleEl.textContent = ".news-marquee-track a{transition:color 0.2s,text-shadow 0.2s}.news-marquee-track a:hover{color:#60a5fa;text-shadow:0 0 8px rgba(96,165,250,0.5)}";
+    if (!document.querySelector("style[data-news-hover]")) {
+      styleEl.setAttribute("data-news-hover", "true");
+      document.head.appendChild(styleEl);
+    }
 
     if (!items.length) {
       // 新浪滚动失败时静默降级为腾讯入口
@@ -1631,6 +1621,8 @@
       _klineCandleSeries = null;
       _klineVolumeSeries = null;
     }
+    const chartContainer = document.getElementById("klineChart");
+    if (chartContainer) chartContainer.classList.remove("has-data");
     try {
       _klineChart = LightweightCharts.createChart(container, {
         width: container.clientWidth || container.offsetWidth || 320,
@@ -1745,6 +1737,10 @@
       }
     }
     _klineChart.timeScale().fitContent();
+      
+      // 添加has-data类隐藏加载提示
+      const chartContainer = document.getElementById("klineChart");
+      if (chartContainer) chartContainer.classList.add("has-data");
   }
 
   // ===== init 末尾添加 K线初始化 =====

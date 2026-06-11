@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>AI策略分析 — 股票回撤不怕</title>
+  <title>猎手AI量化策略精选｜主力收益对比工具 v6.37</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
@@ -11,8 +11,8 @@
     *{margin:0;padding:0;box-sizing:border-box}
     :root{
       --bg:#0a0e17;--panel:#111827;--card:#0f1729;--card-alt:#151f32;
-      --accent:#00d4aa;--red:#ef4444;--blue:#3b82f6;--accent2:#38bdf8;
-      --text:#e0e6ed;--muted:#6b7280;
+      --accent:#00d4aa;--red:#ef4444;--blue:#3b82f6;--accent2:#38bdf8;--yellow:#eab308;--green-bright:#22c55e;
+      --text:#e0e6ed;--muted:#6b7280;--muted2:#94a3b8;
       --line:rgba(100,116,139,.12);--line-hover:rgba(0,212,170,.25);
       --glow:rgba(0,212,170,.15);
       --font:'Inter',-apple-system,'PingFang SC','Noto Sans SC','Microsoft YaHei',sans-serif;
@@ -20,113 +20,166 @@
       --radius:12px;--radius-lg:16px;
     }
     html,body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;-webkit-font-smoothing:antialiased}
-    .container{max-width:440px;margin:0 auto;padding:0 20px}
+    .container{max-width:520px;margin:0 auto;padding:0 16px 60px}
 
     /* === AMBIENT GLOW === */
     .ambient-glow{position:fixed;width:500px;height:500px;border-radius:50%;filter:blur(120px);opacity:.06;pointer-events:none;z-index:0}
     .ambient-glow.g1{top:-200px;right:-100px;background:var(--accent)}
     .ambient-glow.g2{bottom:-200px;left:-100px;background:var(--accent2)}
 
+    /* === NAV === */
+    .top-nav{display:flex;justify-content:space-between;align-items:center;padding:16px 0 0;position:relative;z-index:2}
+    .top-nav a{display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:8px;font-size:12px;font-weight:600;color:var(--accent2);text-decoration:none;border:1px solid rgba(56,189,248,.2);transition:all .2s}
+    .top-nav a:hover{background:rgba(56,189,248,.08);border-color:rgba(56,189,248,.4)}
+    .version-badge{font-size:11px;color:var(--muted);letter-spacing:.5px}
+
     /* === HERO === */
-    .hero{padding:48px 0 32px;text-align:center;position:relative;z-index:1}
-    .hero h1{font-size:26px;font-weight:800;line-height:1.35;background:linear-gradient(135deg,#fff 0%,#94a3b8 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-shadow:0 0 40px rgba(0,212,170,.1)}
-    .hero p{margin-top:12px;font-size:15px;color:var(--muted);line-height:1.6}
+    .hero{padding:32px 0 24px;text-align:center;position:relative;z-index:1}
+    .hero h1{font-size:22px;font-weight:800;line-height:1.4;background:linear-gradient(135deg,#fff 0%,#94a3b8 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .hero .subtitle{margin-top:8px;font-size:13px;color:var(--muted2);line-height:1.5}
     .hero .highlight{color:var(--accent);font-weight:700}
 
-    /* === STEP INDICATOR === */
-    .steps{display:flex;justify-content:center;gap:8px;margin-bottom:28px;position:relative;z-index:1}
-    .step-dot{width:32px;height:4px;border-radius:2px;background:rgba(100,116,139,.15);transition:all .3s}
-    .step-dot.active{background:var(--accent);width:48px;box-shadow:0 0 12px rgba(0,212,170,.4)}
+    /* === NOTICE BOX === */
+    .notice-box{background:var(--card);border:1px solid rgba(0,212,170,.15);border-radius:var(--radius);padding:14px 16px;margin-bottom:24px;position:relative;z-index:1}
+    .notice-box .notice-title{font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+    .notice-box p{font-size:12px;color:var(--muted2);line-height:1.6}
+    .notice-box strong{color:var(--text);font-weight:600}
+    .notice-box .disclaimer{margin-top:8px;font-size:11px;color:var(--muted);border-top:1px solid var(--line);padding-top:8px}
 
-    /* === PANELS === */
-    .panel{display:none;animation:fadeIn .35s ease;position:relative;z-index:1}
-    .panel.active{display:block}
-    @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+    /* === SECTION HEADERS === */
+    .section-header{display:flex;align-items:center;gap:8px;margin-bottom:14px;padding-top:8px}
+    .section-header .icon{font-size:20px}
+    .section-header h2{font-size:16px;font-weight:700;color:var(--text)}
+    .section-header .tag{font-size:10px;padding:2px 8px;border-radius:6px;font-weight:600;letter-spacing:.3px}
+    .tag-green{background:rgba(34,197,94,.12);color:#22c55e;border:1px solid rgba(34,197,94,.2)}
+    .tag-blue{background:rgba(59,130,246,.12);color:#3b82f6;border:1px solid rgba(59,130,246,.2)}
+    .tag-yellow{background:rgba(234,179,8,.12);color:#eab308;border:1px solid rgba(234,179,8,.2)}
 
-    /* === STEP 1: INPUT === */
-    .input-box{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin-bottom:16px;transition:border-color .25s,box-shadow .25s,transform .2s;position:relative;overflow:hidden}
-    .input-box::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(0,212,170,.3),transparent);opacity:0;transition:opacity .3s}
-    .input-box:hover{border-color:var(--line-hover);box-shadow:0 4px 20px rgba(0,212,170,.06);transform:translateY(-1px)}
-    .input-box:hover::before{opacity:1}
+    /* === TABLE === */
+    .data-table{width:100%;border-collapse:separate;border-spacing:0;background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:8px}
+    .data-table thead{background:rgba(0,212,170,.05)}
+    .data-table th{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;padding:10px 8px;text-align:left;border-bottom:1px solid var(--line)}
+    .data-table td{font-size:12px;padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:middle;color:var(--text)}
+    .data-table tr:last-child td{border-bottom:none}
+    .data-table tr:hover{background:rgba(0,212,170,.03)}
+    .data-table .code-cell{font-family:var(--mono);font-weight:600;color:var(--accent);font-size:12px}
+    .data-table .name-cell{font-weight:500;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .data-table .metric-val{font-family:var(--mono);font-weight:600;font-size:12px}
+
+    /* === COPY BUTTON === */
+    .copy-btn{background:rgba(0,212,170,.1);border:1px solid rgba(0,212,170,.25);color:var(--accent);padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;transition:all .2s;white-space:nowrap}
+    .copy-btn:hover{background:rgba(0,212,170,.2);border-color:var(--accent);box-shadow:0 2px 8px rgba(0,212,170,.15)}
+    .copy-btn:active{transform:scale(.95)}
+
+    /* === SIGNAL TAG === */
+    .signal-tag{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;cursor:default;position:relative}
+    .signal-bull{background:rgba(34,197,94,.12);color:#22c55e;border:1px solid rgba(34,197,94,.2)}
+    .signal-bear{background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.2)}
+    .signal-neutral{background:rgba(234,179,8,.12);color:#eab308;border:1px solid rgba(234,179,8,.2)}
+    .signal-tip{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:11px;color:var(--muted2);line-height:1.5;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .2s;z-index:10;box-shadow:0 4px 20px rgba(0,0,0,.4)}
+    .signal-tag:hover .signal-tip{opacity:1}
+
+    /* === SOURCE NOTE === */
+    .source-note{font-size:10px;color:var(--muted);margin-top:-2px;margin-bottom:20px;padding-left:4px}
+
+    /* === DIVIDER === */
+    .section-divider{height:1px;background:linear-gradient(90deg,transparent,var(--line),transparent);margin:24px 0}
+
+    /* === BACKTEST MODULE === */
+    .input-box{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin-bottom:14px;transition:border-color .25s,box-shadow .25s}
+    .input-box:hover{border-color:var(--line-hover);box-shadow:0 4px 20px rgba(0,212,170,.06)}
     .input-box label{display:block;font-size:11px;color:var(--muted);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
     .code-input{width:100%;background:rgba(10,14,23,.6);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;color:#fff;font-size:18px;font-weight:600;letter-spacing:2px;text-align:center;outline:none;transition:border-color .2s,box-shadow .2s;font-family:var(--mono)}
     .code-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
     .code-input::placeholder{color:rgba(107,114,128,.5);letter-spacing:1px;font-weight:400}
 
-    .profile-group{display:flex;gap:10px;margin-bottom:20px}
-    .profile-btn{flex:1;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 8px;text-align:center;cursor:pointer;transition:all .3s cubic-bezier(.4,0,.2,1);position:relative;overflow:hidden}
-    .profile-btn::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:0;transition:opacity .3s}
-    .profile-btn .icon{font-size:24px;display:block;margin-bottom:4px}
-    .profile-btn .name{font-size:13px;font-weight:600;color:var(--text)}
-    .profile-btn .desc{font-size:11px;color:var(--muted);margin-top:2px}
-    .profile-btn:hover{border-color:var(--line-hover);transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,212,170,.1)}
-    .profile-btn:hover::before{opacity:1}
+    .profile-group{display:flex;gap:8px;margin-bottom:16px}
+    .profile-btn{flex:1;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px 6px;text-align:center;cursor:pointer;transition:all .3s}
+    .profile-btn .icon{font-size:22px;display:block;margin-bottom:2px}
+    .profile-btn .name{font-size:12px;font-weight:600;color:var(--text)}
+    .profile-btn .desc{font-size:10px;color:var(--muted);margin-top:2px}
+    .profile-btn:hover{border-color:var(--line-hover);transform:translateY(-1px)}
     .profile-btn.selected{border-color:var(--accent);background:rgba(0,212,170,.08)}
     .profile-btn.selected .name{color:var(--accent)}
-    .profile-btn.selected::before{opacity:1}
 
-    .run-btn{width:100%;padding:16px;border:none;border-radius:var(--radius);font-size:16px;font-weight:700;cursor:pointer;transition:all .3s cubic-bezier(.4,0,.2,1);background:linear-gradient(135deg,var(--accent),#00a388);color:#0a0e17;box-shadow:0 4px 20px rgba(0,212,170,.3);position:relative;overflow:hidden}
-    .run-btn::after{content:'';position:absolute;top:0;left:-100%;width:100%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.15),transparent);transition:left .5s}
+    .run-btn{width:100%;padding:14px;border:none;border-radius:var(--radius);font-size:15px;font-weight:700;cursor:pointer;transition:all .3s;background:linear-gradient(135deg,var(--accent),#00a388);color:#0a0e17;box-shadow:0 4px 20px rgba(0,212,170,.3);position:relative;overflow:hidden}
     .run-btn:hover{transform:translateY(-2px);box-shadow:0 6px 28px rgba(0,212,170,.45)}
-    .run-btn:hover::after{left:100%}
     .run-btn:active{transform:translateY(0)}
     .run-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
 
-    /* === STEP 2: RESULTS === */
-    .compare-banner{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin-bottom:16px;display:flex;align-items:center;gap:16px;transition:border-color .25s,box-shadow .25s,transform .2s;position:relative;overflow:hidden}
-    .compare-banner::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(0,212,170,.3),transparent);opacity:0;transition:opacity .3s}
-    .compare-banner:hover{border-color:var(--line-hover);box-shadow:0 4px 20px rgba(0,212,170,.06);transform:translateY(-1px)}
-    .compare-banner:hover::before{opacity:1}
+    /* === RESULTS === */
+    .compare-banner{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin-bottom:14px;display:flex;align-items:center;gap:14px}
     .compare-item{flex:1;text-align:center}
-    .compare-item .label{font-size:12px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
-    .compare-item .value{font-size:28px;font-weight:800;font-family:var(--mono)}
-    .compare-item .value.red{color:var(--red);text-shadow:0 0 12px rgba(239,68,68,.15)}
-    .compare-item .value.green{color:var(--accent);text-shadow:0 0 12px rgba(0,212,170,.15)}
-    .compare-vs{font-size:14px;color:var(--muted);font-weight:700;flex-shrink:0}
+    .compare-item .label{font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
+    .compare-item .value{font-size:26px;font-weight:800;font-family:var(--mono)}
+    .compare-item .value.red{color:var(--red)}
+    .compare-item .value.green{color:var(--accent)}
+    .compare-vs{font-size:13px;color:var(--muted);font-weight:700;flex-shrink:0}
 
-    .chart-wrap{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);padding:16px;margin-bottom:16px;transition:border-color .25s,box-shadow .25s,transform .2s;position:relative;overflow:hidden}
-    .chart-wrap::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(0,212,170,.3),transparent);opacity:0;transition:opacity .3s}
-    .chart-wrap:hover{border-color:var(--line-hover);box-shadow:0 4px 20px rgba(0,212,170,.06);transform:translateY(-1px)}
-    .chart-wrap:hover::before{opacity:1}
-    .chart-wrap .chart-title{font-size:11px;color:var(--muted);margin-bottom:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
-    #chartDiv{width:100%;height:240px;margin:8px 0}
+    .chart-wrap{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);padding:14px;margin-bottom:14px}
+    .chart-wrap .chart-title{font-size:11px;color:var(--muted);margin-bottom:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
 
-    .metrics-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px}
-    .metric-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;text-align:center;transition:border-color .2s,transform .2s,box-shadow .2s;position:relative;overflow:hidden}
-    .metric-card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(0,212,170,.2),transparent);opacity:0;transition:opacity .3s}
-    .metric-card:hover{border-color:var(--line-hover);transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,212,170,.08)}
-    .metric-card:hover::before{opacity:1}
-    .metric-card .m-label{font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
-    .metric-card .m-value{font-size:20px;font-weight:700;font-family:var(--mono)}
-    .metric-card .m-value.good{color:var(--accent);text-shadow:0 0 12px rgba(0,212,170,.15)}
-    .metric-card .m-value.bad{color:var(--red);text-shadow:0 0 12px rgba(239,68,68,.15)}
-    .metric-card .m-value.neutral{color:var(--text)}
+    .metrics-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
+    .metric-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;text-align:center}
+    .m-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+    .m-value{font-size:20px;font-weight:800;font-family:var(--mono);color:var(--text)}
+    .m-value.good{color:var(--accent)}
+    .m-value.bad{color:var(--red)}
+    .m-value.neutral{color:var(--muted2)}
 
-    .back-btn{width:100%;padding:14px;background:transparent;border:1px solid var(--line);border-radius:var(--radius);color:var(--muted);font-size:14px;font-weight:600;cursor:pointer;margin-bottom:12px;transition:all .3s cubic-bezier(.4,0,.2,1)}
-    .back-btn:hover{border-color:var(--line-hover);color:var(--text);transform:translateY(-1px);box-shadow:0 2px 12px rgba(0,212,170,.06)}
+    .back-btn{width:100%;padding:12px;border:1px solid var(--line);border-radius:var(--radius);font-size:14px;font-weight:600;cursor:pointer;background:transparent;color:var(--muted2);margin-bottom:8px;transition:all .2s}
+    .back-btn:hover{border-color:var(--line-hover);color:var(--text)}
 
-    /* === STEP 3: CTA === */
-    .cta-panel{text-align:center;padding:32px 0}
-    .cta-panel .check-icon{font-size:48px;margin-bottom:16px}
-    .cta-panel h2{font-size:22px;font-weight:800;margin-bottom:8px}
-    .cta-panel p{font-size:14px;color:var(--muted);line-height:1.6;margin-bottom:24px}
-    .cta-form{display:flex;gap:8px;margin-bottom:12px}
-    .cta-form input{flex:1;background:rgba(10,14,23,.6);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;color:#fff;font-size:14px;outline:none;transition:border-color .2s,box-shadow .2s}
-    .cta-form input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
-    .cta-form button{padding:14px 24px;border:none;border-radius:var(--radius);background:linear-gradient(135deg,var(--accent),#00a388);color:#0a0e17;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all .3s;box-shadow:0 2px 12px rgba(0,212,170,.2)}
-    .cta-form button:hover{box-shadow:0 4px 20px rgba(0,212,170,.35);transform:translateY(-1px)}
-    .cta-note{font-size:12px;color:var(--muted)}
+    /* === RULES PANEL === */
+    .rules-panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-bottom:14px}
+    .rules-panel .rules-title{font-size:12px;font-weight:700;color:var(--accent);margin-bottom:8px}
+    .rules-panel .rule-item{font-size:11px;color:var(--muted2);line-height:1.6;padding-left:12px;position:relative}
+    .rules-panel .rule-item::before{content:'•';position:absolute;left:0;color:var(--accent)}
+
+    /* === CTA SECTION === */
+    .cta-section{background:var(--card);border:1px solid rgba(0,212,170,.15);border-radius:var(--radius-lg);padding:24px 20px;margin-top:24px;text-align:center;position:relative;overflow:hidden}
+    .cta-section::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent)}
+    .cta-section h3{font-size:17px;font-weight:800;color:var(--text);margin-bottom:8px}
+    .cta-section .cta-subtitle{font-size:12px;color:var(--muted2);margin-bottom:16px;line-height:1.5}
+    .cta-materials{text-align:left;margin-bottom:18px}
+    .cta-materials .mat-item{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+    .cta-materials .mat-item:last-child{border-bottom:none}
+    .cta-materials .mat-num{width:22px;height:22px;border-radius:6px;background:rgba(0,212,170,.1);color:var(--accent);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+    .cta-materials .mat-text{font-size:12px;color:var(--muted2);line-height:1.5}
+    .cta-materials .mat-text strong{color:var(--text);font-weight:600}
+
+    .qr-area{display:flex;flex-direction:column;align-items:center;gap:10px;margin:16px 0}
+    .qr-area img{width:140px;height:140px;border-radius:12px;border:2px solid var(--line)}
+    .qr-area .qr-label{font-size:11px;color:var(--muted)}
+
+    .cta-form{display:flex;gap:8px;margin:14px 0}
+    .cta-form input{flex:1;background:rgba(10,14,23,.6);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;color:#fff;font-size:14px;outline:none;font-family:var(--font)}
+    .cta-form input:focus{border-color:var(--accent)}
+    .cta-form input::placeholder{color:rgba(107,114,128,.5)}
+    .cta-form button{background:linear-gradient(135deg,var(--accent),#00a388);color:#0a0e17;border:none;padding:12px 20px;border-radius:var(--radius);font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all .2s}
+    .cta-form button:hover{box-shadow:0 4px 16px rgba(0,212,170,.3)}
+
+    .cta-wechat{margin-top:14px}
+    .cta-wechat .wx-label{font-size:11px;color:var(--muted);margin-bottom:6px}
+    .cta-wechat .wx-btn{background:rgba(0,212,170,.1);border:1px solid rgba(0,212,170,.25);color:var(--accent);padding:10px 24px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;transition:all .2s;width:100%}
+    .cta-wechat .wx-btn:hover{background:rgba(0,212,170,.2);box-shadow:0 4px 16px rgba(0,212,170,.2)}
+
+    .cta-note{font-size:10px;color:var(--muted);margin-top:12px}
+
+    /* === FOOTER === */
+    .footer{padding:24px 0 16px;text-align:center;position:relative;z-index:1}
+    .footer p{font-size:11px;color:var(--muted);line-height:1.6}
 
     /* === LOADING === */
-    .loading-overlay{position:fixed;inset:0;background:rgba(10,14,23,.92);z-index:100;display:none;align-items:center;justify-content:center;flex-direction:column;backdrop-filter:blur(8px)}
+    .loading-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(10,14,17,.85);z-index:100;flex-direction:column;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
     .loading-overlay.show{display:flex}
     .spinner{width:40px;height:40px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
     .loading-text{margin-top:16px;color:var(--muted);font-size:14px}
 
-    /* === PULSE === */
-    .pulse{animation:pulse 2s ease-in-out infinite}
-    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+    /* === TOAST === */
+    .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%) translateY(-100px);background:var(--panel);border:1px solid var(--accent);border-radius:var(--radius);padding:12px 20px;color:var(--accent);font-size:13px;font-weight:600;z-index:200;box-shadow:0 4px 20px rgba(0,212,170,.2);transition:transform .3s ease;pointer-events:none;max-width:90vw;text-align:center}
+    .toast.show{transform:translateX(-50%) translateY(0)}
 
     /* === ERROR === */
     .error-msg{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:var(--radius);padding:12px 16px;color:var(--red);font-size:13px;margin-bottom:12px;display:none}
@@ -137,6 +190,18 @@
     ::-webkit-scrollbar-track{background:transparent}
     ::-webkit-scrollbar-thumb{background:rgba(0,212,170,.2);border-radius:2px}
     ::selection{background:rgba(0,212,170,.2);color:var(--text)}
+
+    /* === RESPONSIVE === */
+    @media(max-width:400px){
+      .hero h1{font-size:18px}
+      .compare-item .value{font-size:22px}
+      .data-table th,.data-table td{padding:8px 6px;font-size:11px}
+      .cta-materials .mat-text{font-size:11px}
+    }
+
+    /* === RESULTS PANEL (hidden by default) === */
+    #resultsSection{display:none}
+    #resultsSection.show{display:block}
   </style>
 </head>
 <body>
@@ -145,25 +210,88 @@
 <div class="ambient-glow g1"></div>
 <div class="ambient-glow g2"></div>
 
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
 <div class="container">
+  <!-- TOP NAV -->
+  <div class="top-nav">
+    <a href="/xuequ/">🏠 学区规划助手</a>
+    <span class="version-badge">v6.37</span>
+  </div>
+
   <!-- HERO -->
   <div class="hero">
-    <h1>股票跌了不可怕<br>有策略，只回撤一点点</h1>
-    <p>输入任意股票代码，AI量化策略 vs 直线持有<br>3秒看清 <span class="highlight">差距有多大</span></p>
+    <h1>猎手AI量化策略精选<br>主力收益对比工具 v6.37</h1>
+    <p class="subtitle">ATR动态止损 · 28条铁律 · R²基金筛选 · 三位一体验证</p>
   </div>
 
-  <!-- STEP DOTS -->
-  <div class="steps">
-    <div class="step-dot active" id="dot1"></div>
-    <div class="step-dot" id="dot2"></div>
-    <div class="step-dot" id="dot3"></div>
+  <!-- NOTICE BOX -->
+  <div class="notice-box">
+    <div class="notice-title">⚠️ 操作指引 & 免责声明</div>
+    <p><strong>统一操作：</strong>下方榜单为AI策略/第三方量化筛选公开标的，点击一键复制代码，打开支付宝理财搜索代码，自主查看、自主申购/交易；本工具仅提供数据参考，不构成任何投资建议</p>
+    <div class="disclaimer">爬虫数据取自公开网站r2fund.cn，历史收益不代表未来收益，投资有风险</div>
   </div>
 
-  <!-- STEP 1: INPUT -->
-  <div class="panel active" id="step1">
+  <!-- ====== MODULE 1: R² 基金精选 ====== -->
+  <div class="section-header">
+    <span class="icon">💎</span>
+    <h2>R²基金精选</h2>
+    <span class="tag tag-green">高收益低波动</span>
+  </div>
+  <div id="fundLoading" style="text-align:center;padding:20px;color:var(--muted);font-size:12px">加载中...</div>
+  <table class="data-table" id="fundTable" style="display:none">
+    <thead>
+      <tr>
+        <th>代码</th>
+        <th>基金名称</th>
+        <th>年化</th>
+        <th>R²</th>
+        <th>回撤</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="fundBody"></tbody>
+  </table>
+  <div class="source-note">数据来源r2fund.cn第三方量化筛选</div>
+
+  <div class="section-divider"></div>
+
+  <!-- ====== MODULE 2: 猎手A股策略精选 ====== -->
+  <div class="section-header">
+    <span class="icon">🎯</span>
+    <h2>猎手A股策略精选</h2>
+    <span class="tag tag-blue">AI多周期信号</span>
+  </div>
+  <div id="stockLoading" style="text-align:center;padding:20px;color:var(--muted);font-size:12px">加载中...</div>
+  <table class="data-table" id="stockTable" style="display:none">
+    <thead>
+      <tr>
+        <th>代码</th>
+        <th>个股</th>
+        <th>行业</th>
+        <th>PE</th>
+        <th>AI信号</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="stockBody"></tbody>
+  </table>
+  <div class="source-note">28条交易铁律+ATR三档止损（短线1.5/防御2.0/长线3.0）、政策/资金/情绪三维打分</div>
+
+  <div class="section-divider"></div>
+
+  <!-- ====== MODULE 3: 自定义代码收益对比 ====== -->
+  <div class="section-header">
+    <span class="icon">📊</span>
+    <h2>自定义代码收益对比</h2>
+    <span class="tag tag-yellow">回测分析</span>
+  </div>
+
+  <div id="inputSection">
     <div class="input-box">
-      <label>股票代码</label>
-      <input type="text" class="code-input" id="stockCode" placeholder="例如 600519" maxlength="6" inputmode="numeric" autocomplete="off" />
+      <label>股票/基金代码</label>
+      <input type="text" class="code-input" id="stockCode" placeholder="例如 600519 或 012153" maxlength="6" inputmode="numeric" autocomplete="off" />
     </div>
 
     <div class="profile-group">
@@ -185,36 +313,36 @@
     </div>
 
     <div class="error-msg" id="errorMsg"></div>
-    <button class="run-btn" id="runBtn" onclick="runAnalysis()">开始分析</button>
+    <button class="run-btn" id="runBtn" onclick="runAnalysis()">策略收益对比</button>
   </div>
 
-  <!-- STEP 2: RESULTS -->
-  <div class="panel" id="step2">
+  <!-- RESULTS (hidden initially) -->
+  <div id="resultsSection">
     <div class="compare-banner">
       <div class="compare-item">
-        <div class="label">直线持有</div>
-        <div class="value red" id="holdReturn">--</div>
+        <div class="label">长期持有</div>
+        <div class="value" id="holdReturn">--</div>
       </div>
       <div class="compare-vs">VS</div>
       <div class="compare-item">
-        <div class="label">策略收益</div>
-        <div class="value green" id="stratReturn">--</div>
+        <div class="label">AI波段策略</div>
+        <div class="value" id="stratReturn">--</div>
       </div>
     </div>
 
     <div class="chart-wrap">
       <div class="chart-title">📈 收益曲线对比</div>
       <div id="chartDiv" style="width:100%;height:240px"></div>
-      <div style="display:flex;justify-content:center;gap:20px;margin-top:10px">
-        <span style="font-size:12px;color:#5a6a7e"><span style="display:inline-block;width:20px;height:2px;background:#5a6a7e;vertical-align:middle;margin-right:4px"></span>持有</span>
-        <span style="font-size:12px;color:#00d4aa"><span style="display:inline-block;width:20px;height:2px;background:#00d4aa;vertical-align:middle;margin-right:4px"></span>策略</span>
+      <div style="display:flex;justify-content:center;gap:20px;margin-top:8px">
+        <span style="font-size:11px;color:#5a6a7e"><span style="display:inline-block;width:20px;height:2px;background:#5a6a7e;vertical-align:middle;margin-right:4px"></span>持有</span>
+        <span style="font-size:11px;color:#00d4aa"><span style="display:inline-block;width:20px;height:2px;background:#00d4aa;vertical-align:middle;margin-right:4px"></span>策略</span>
       </div>
     </div>
 
     <div class="metrics-grid">
       <div class="metric-card">
         <div class="m-label">最大回撤</div>
-        <div class="m-value bad" id="mDD">--</div>
+        <div class="m-value" id="mDD">--</div>
       </div>
       <div class="metric-card">
         <div class="m-label">年化收益</div>
@@ -222,39 +350,73 @@
       </div>
       <div class="metric-card">
         <div class="m-label">夏普比率</div>
-        <div class="m-value neutral" id="mSharpe">--</div>
+        <div class="m-value" id="mSharpe">--</div>
       </div>
       <div class="metric-card">
         <div class="m-label">胜率</div>
-        <div class="m-value neutral" id="mWinRate">--</div>
+        <div class="m-value" id="mWinRate">--</div>
       </div>
     </div>
 
-    <button class="back-btn" onclick="goStep(1)">← 重新分析</button>
-    <button class="run-btn" onclick="goStep(3)">📋 获取完整策略报告</button>
+    <!-- ATR止损区间 & 仓位参考 -->
+    <div class="rules-panel" id="atrPanel" style="display:none">
+      <div class="rules-title">🎯 ATR止盈止损区间 & 仓位参考</div>
+      <div id="atrContent"></div>
+    </div>
+
+    <!-- 28条铁律匹配提示 -->
+    <div class="rules-panel" id="rulesPanel" style="display:none">
+      <div class="rules-title">📋 28条交易铁律匹配提示</div>
+      <div id="rulesContent"></div>
+    </div>
+
+    <button class="back-btn" onclick="goBack()">← 重新分析</button>
   </div>
 
-  <!-- STEP 3: CTA -->
-  <div class="panel" id="step3">
-    <div class="cta-panel">
-      <div class="check-icon">🔒</div>
-      <h2>完整策略报告已生成</h2>
-      <p style="color:#ef4444;font-size:14px;margin:8px 0">添加金融顾问微信，免费获取完整报告</p>
-      <div class="wechat-cta" style="text-align:center;margin:16px 0">
-        <img src="wechat.jpg" style="width:150px;height:150px;border-radius:12px;border:2px solid rgba(100,116,139,.12)" />
-        <p style="color:#6b7280;font-size:12px;margin-top:8px">扫码添加金融顾问</p>
-        <button onclick="copyWechat()" style="background:linear-gradient(135deg,#00d4aa,#00a388);color:#0a0e17;border:none;padding:12px 28px;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin-top:10px;width:100%;box-shadow:0 4px 16px rgba(0,212,170,.25);transition:all .3s" onmouseover="this.style.boxShadow='0 6px 24px rgba(0,212,170,.4)';this.style.transform='translateY(-1px)'" onmouseout="this.style.boxShadow='0 4px 16px rgba(0,212,170,.25)';this.style.transform='none'">📋 复制微信号: XLN31689</button>
+  <!-- ====== CTA SECTION ====== -->
+  <div class="cta-section">
+    <h3>获取完整猎手v6.37全套策略文档</h3>
+    <p class="cta-subtitle">添加微信即可免费领取以下资料</p>
+
+    <div class="cta-materials">
+      <div class="mat-item">
+        <span class="mat-num">①</span>
+        <span class="mat-text"><strong>完整28条交易铁律全文解读</strong><br>每条铁律附实战案例与违规后果</span>
       </div>
-      <div style="border-top:1px solid rgba(100,116,139,.12);padding-top:16px;margin-top:16px">
-        <p style="color:#6b7280;font-size:13px;margin-bottom:8px">📱 留下手机号，顾问主动联系您</p>
-        <div class="cta-form">
-          <input type="tel" id="contactInput" placeholder="请输入11位手机号" maxlength="11" pattern="1[3-9]\d{9}" />
-          <button onclick="submitContact()">提交</button>
-        </div>
+      <div class="mat-item">
+        <span class="mat-num">②</span>
+        <span class="mat-text"><strong>ATR动态止损分档实操模板</strong><br>短线1.5 / 防御2.0 / 长线3.0三档设置指南</span>
       </div>
-      <div class="cta-note">🔒 信息严格保密，仅用于1对1策略服务</div>
+      <div class="mat-item">
+        <span class="mat-num">③</span>
+        <span class="mat-text"><strong>短线+长线双轨制仓位分配方案</strong><br>含仓位比例计算公式与加减仓触发条件</span>
+      </div>
+      <div class="mat-item">
+        <span class="mat-num">④</span>
+        <span class="mat-text"><strong>R²基金榜单每日筛选逻辑拆解</strong><br>年化、R²、回撤三维筛选标准与信号生成规则</span>
+      </div>
     </div>
-    <button class="back-btn" onclick="goStep(2)">← 返回查看结果</button>
+
+    <div class="qr-area">
+      <img src="wechat.jpg" alt="微信二维码" />
+      <span class="qr-label">扫码添加金融顾问</span>
+    </div>
+
+    <div class="cta-wechat">
+      <div class="wx-label">或搜索微信号</div>
+      <button class="wx-btn" onclick="copyWechat()">📋 复制微信号: XLN31689</button>
+    </div>
+
+    <div class="cta-form">
+      <input type="tel" id="contactInput" placeholder="留下手机号，顾问主动联系" maxlength="11" pattern="1[3-9]\d{9}" />
+      <button onclick="submitContact()">提交</button>
+    </div>
+    <div class="cta-note">🔒 信息严格保密，仅用于1对1策略服务</div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <p>猎手AI量化策略精选 v6.37 · 数据仅供参考<br>投资有风险，自主搜索、自主判断、自主交易</p>
   </div>
 </div>
 
@@ -268,36 +430,142 @@
   let selectedProfile = 'moderate';
   let lastResult = null;
 
+  // ====== INIT ======
+  document.addEventListener('DOMContentLoaded', () => {
+    loadFundData();
+    loadStockData();
+    document.getElementById('stockCode').addEventListener('keydown', e => {
+      if (e.key === 'Enter') runAnalysis();
+    });
+  });
+
+  // ====== LOAD FUND DATA ======
+  async function loadFundData() {
+    try {
+      const resp = await fetch('/api/fund-stocks');
+      const data = await resp.json();
+      const funds = data.funds || [];
+      document.getElementById('fundLoading').style.display = 'none';
+      if (funds.length === 0) {
+        document.getElementById('fundLoading').style.display = 'block';
+        document.getElementById('fundLoading').textContent = '暂无基金数据';
+        return;
+      }
+      const tbody = document.getElementById('fundBody');
+      tbody.innerHTML = funds.map(f => {
+        const signalClass = f.signal === '\ud83d\udfe2' ? 'signal-bull' : f.signal === '\ud83d\udd34' ? 'signal-bear' : 'signal-neutral';
+        const signalLabel = f.signal === '\ud83d\udfe2' ? '\u4f18\u9009' : f.signal === '\ud83d\udd34' ? '\u89c2\u5bdf' : '\u5173\u6ce8';
+        const code = f.code || '';
+        const name = f.name || '';
+        return '<tr>' +
+          '<td class="code-cell">' + code + '</td>' +
+          '<td class="name-cell"><a href="https://r2fund.cn" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;cursor:pointer">' + name + '</a></td>' +
+          '<td class="metric-val" style="color:#22c55e">' + (f.metrics['\u5e74\u5316'] || '--') + '</td>' +
+          '<td class="metric-val">' + (f.metrics['3\u5e74R\xb2'] || '--') + '</td>' +
+          '<td class="metric-val" style="color:#ef4444">' + (f.metrics['\u6700\u5927\u56de\u64a4'] || '--') + '</td>' +
+          '<td><button class="copy-btn" onclick="copyCode(\'' + code + '\',\'' + name.replace(/'/g,"\\'") + '\')">\u590d\u5236\u4ee3\u7801</button></td>' +
+          '</tr>';
+      }).join('');
+      document.getElementById('fundTable').style.display = '';
+    } catch (e) {
+      document.getElementById('fundLoading').textContent = '\u52a0\u8f7d\u5931\u8d25\uff0c\u8bf7\u5237\u65b0\u91cd\u8bd5';
+    }
+  }
+
+  // ====== LOAD STOCK DATA ======
+  async function loadStockData() {
+    try {
+      const resp = await fetch('/api/candidate-stocks');
+      const data = await resp.json();
+      const stocks = data.stocks || [];
+      document.getElementById('stockLoading').style.display = 'none';
+      if (stocks.length === 0) {
+        document.getElementById('stockLoading').style.display = 'block';
+        document.getElementById('stockLoading').textContent = '\u6682\u65e0\u7b56\u7565\u6c60\u6570\u636e';
+        return;
+      }
+      const tbody = document.getElementById('stockBody');
+      tbody.innerHTML = stocks.map(s => {
+        let signalClass, signalLabel;
+        if (s.chg_pct > 0 && s.pe < 15) { signalClass = 'signal-bull'; signalLabel = '\u591a'; }
+        else if (s.chg_pct < -1) { signalClass = 'signal-bear'; signalLabel = '\u7a7a'; }
+        else { signalClass = 'signal-neutral'; signalLabel = '\u89c2'; }
+        const code = s.code || '';
+        const name = s.name || '';
+        return '<tr>' +
+          '<td class="code-cell">' + code + '</td>' +
+          '<td class="name-cell" title="' + name + '">' + name + '</td>' +
+          '<td style="font-size:11px;color:var(--muted2)">' + (s.sector || '--') + '</td>' +
+          '<td class="metric-val">' + (s.pe || '--') + '</td>' +
+          '<td>' +
+            '<span class="signal-tag ' + signalClass + '">' +
+              signalLabel +
+              '<span class="signal-tip">28\u6761\u94c1\u5f8b+ATR\u4e09\u6863\u6b62\u635f\uff08\u77ed\u7ebf1.5/\u9632\u5fa12.0/\u957f\u7ebf3.0\uff09<br>\u653f\u7b56/\u8d44\u91d1/\u60c5\u7eea\u4e09\u7ef4\u6253\u5206\u7efc\u5408\u5224\u5b9a</span>' +
+            '</span>' +
+          '</td>' +
+          '<td><button class="copy-btn" onclick="copyCode(\'' + code + '\',\'' + name.replace(/'/g,"\\'") + '\')">\u590d\u5236\u4ee3\u7801</button></td>' +
+          '</tr>';
+      }).join('');
+      document.getElementById('stockTable').style.display = '';
+    } catch (e) {
+      document.getElementById('stockLoading').textContent = '\u52a0\u8f7d\u5931\u8d25\uff0c\u8bf7\u5237\u65b0\u91cd\u8bd5';
+    }
+  }
+
+  // ====== COPY CODE ======
+  function copyCode(code, name) {
+    navigator.clipboard.writeText(code).then(() => {
+      showToast('\u2705 \u4ee3\u7801\u5df2\u590d\u5236\uff0c\u6253\u5f00\u652f\u4ed8\u5b9d\u7408\u8d22\u641c\u7d22\u300c' + name + '\u300d\u67e5\u770b\u8be6\u60c5');
+    }).catch(() => {
+      const input = document.createElement('input');
+      input.value = code;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      showToast('\u2705 \u4ee3\u7801\u5df2\u590d\u5236\uff0c\u6253\u5f00\u652f\u4ed8\u5b9d\u7408\u8d22\u641c\u7d22\u300c' + name + '\u300d\u67e5\u770b\u8be6\u60c5');
+    });
+  }
+
+  // ====== TOAST ======
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3000);
+  }
+
+  // ====== PROFILE SELECT ======
   function selectProfile(el) {
     document.querySelectorAll('.profile-btn').forEach(b => b.classList.remove('selected'));
     el.classList.add('selected');
     selectedProfile = el.dataset.profile;
   }
 
+  // ====== SHOW/HIDE ERROR ======
   function showError(msg) {
     const el = document.getElementById('errorMsg');
     el.textContent = msg;
     el.classList.add('show');
   }
-
   function hideError() {
     document.getElementById('errorMsg').classList.remove('show');
   }
 
-  function goStep(n) {
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-    document.getElementById('step' + n).classList.add('active');
-    document.querySelectorAll('.step-dot').forEach((d, i) => {
-      d.classList.toggle('active', i < n);
-    });
+  // ====== GO BACK ======
+  function goBack() {
+    document.getElementById('resultsSection').classList.remove('show');
+    document.getElementById('inputSection').style.display = '';
+    document.getElementById('stockCode').value = '';
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  // ====== RUN ANALYSIS ======
   async function runAnalysis() {
     hideError();
     const code = document.getElementById('stockCode').value.trim();
     if (!code || !/^\d{6}$/.test(code)) {
-      showError('请输入正确的6位股票代码');
+      showError('\u8bf7\u8f93\u5165\u6b63\u786e\u76846\u4f4d\u4ee3\u7801\uff08\u80a1\u7968\u6216\u57fa\u91d1\uff09');
       return;
     }
 
@@ -306,38 +574,79 @@
     document.getElementById('loadingOverlay').classList.add('show');
 
     try {
-      const url = `/xuequ/bt/backtest?code=${code}&strategy=ma_cross&profile=${selectedProfile}`;
+      const url = '/xuequ/bt/backtest?code=' + code + '&strategy=ma_cross&profile=' + selectedProfile;
       const resp = await fetch(url);
-      if (!resp.ok) throw new Error('接口返回错误');
+      if (!resp.ok) throw new Error('\u63a5\u53e3\u8fd4\u56de\u9519\u8bef');
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
       lastResult = data;
       renderResults(data);
-      goStep(2);
+      document.getElementById('inputSection').style.display = 'none';
+      document.getElementById('resultsSection').classList.add('show');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (e) {
-      showError('分析失败：' + e.message + '。请检查股票代码是否正确。');
+      showError('\u5206\u6790\u5931\u8d25\uff1a' + e.message + '\u3002\u8bf7\u68c0\u67e5\u4ee3\u7801\u662f\u5426\u6b63\u786e\u3002');
     } finally {
       btn.disabled = false;
       document.getElementById('loadingOverlay').classList.remove('show');
     }
   }
 
+  // ====== RENDER RESULTS ======
   function renderResults(data) {
     const m = data.metrics;
     const stratRet = m.total_return;
     const holdRet = m.hold_return || 0;
+
     document.getElementById('holdReturn').textContent = (holdRet >= 0 ? '+' : '') + holdRet.toFixed(1) + '%';
     document.getElementById('stratReturn').textContent = (stratRet >= 0 ? '+' : '') + stratRet.toFixed(1) + '%';
     document.getElementById('holdReturn').className = 'value ' + (holdRet < 0 ? 'red' : 'green');
     document.getElementById('stratReturn').className = 'value ' + (stratRet < 0 ? 'red' : 'green');
+
     document.getElementById('mDD').textContent = m.max_drawdown.toFixed(1) + '%';
+    document.getElementById('mDD').className = 'm-value bad';
     document.getElementById('mAnnual').textContent = (m.annual_return >= 0 ? '+' : '') + m.annual_return.toFixed(1) + '%';
     document.getElementById('mAnnual').className = 'm-value ' + (m.annual_return >= 0 ? 'good' : 'bad');
     document.getElementById('mSharpe').textContent = m.sharpe_ratio.toFixed(2);
+    document.getElementById('mSharpe').className = 'm-value neutral';
     document.getElementById('mWinRate').textContent = m.win_rate.toFixed(0) + '%';
+    document.getElementById('mWinRate').className = 'm-value neutral';
+
+    // ATR panel
+    const atrPanel = document.getElementById('atrPanel');
+    const atrContent = document.getElementById('atrContent');
+    if (m.atr_stop_loss || m.atr_take_profit || data.atr) {
+      atrPanel.style.display = '';
+      const profileLabel = selectedProfile === 'conservative' ? '\u4fdd\u5b88' : selectedProfile === 'aggressive' ? '\u6fc0\u8fdb' : '\u7a33\u5065';
+      atrContent.innerHTML =
+        '<div class="rule-item">ATR\u6b62\u635f\u53c2\u8003: \u77ed\u7ebf1.5\u500fATR / \u9632\u5fa12.0\u500fATR / \u957f\u7ebf3.0\u500fATR</div>' +
+        '<div class="rule-item">\u5f53\u524d\u5efa\u8bae\u4ed3\u4f4d: \u6839\u636e' + profileLabel + '\u578b\u98ce\u9669\u504f\u597d\u8c03\u6574</div>' +
+        (m.max_drawdown > 20 ? '<div class="rule-item" style="color:#ef4444">\u26a0\ufe0f \u6700\u5927\u56de\u64a4\u8d8520%\uff0c\u5efa\u8bae\u964d\u4f4e\u4ed3\u4f4d\u6216\u5207\u6362\u9632\u5fa1\u6863\u4f4d</div>' : '');
+    } else {
+      atrPanel.style.display = 'none';
+    }
+
+    // Rules panel
+    const rulesPanel = document.getElementById('rulesPanel');
+    const rulesContent = document.getElementById('rulesContent');
+    const matchedRules = [];
+    if (m.win_rate > 50) matchedRules.push('\u80dc\u7387>50%\uff0c\u7b26\u5408\u94c1\u5f8b#8\uff08\u80dc\u7387\u95e8\u69db\uff09');
+    if (m.max_drawdown < 15) matchedRules.push('\u6700\u5927\u56de\u64a4<15%\uff0c\u7b26\u5408\u94c1\u5f8b#12\uff08\u56de\u64a4\u63a7\u5236\uff09');
+    if (m.sharpe_ratio > 1) matchedRules.push('\u590f\u666e\u6bd4\u7387>1\uff0c\u7b26\u5408\u94c1\u5f8b#15\uff08\u98ce\u9669\u8c03\u6574\u6536\u76ca\uff09');
+    if (m.annual_return > 15) matchedRules.push('\u5e74\u5316\u6536\u76ca>15%\uff0c\u7b26\u5408\u94c1\u5f8b#3\uff08\u6536\u76ca\u76ee\u6807\uff09');
+    if (holdRet > 0 && stratRet > holdRet) matchedRules.push('\u7b56\u7565\u8dd1\u8d62\u6301\u6709\uff0c\u7b26\u5408\u94c1\u5f8b#1\uff08\u7b56\u7565\u6709\u6548\u6027\u9a8c\u8bc1\uff09');
+
+    if (matchedRules.length > 0) {
+      rulesPanel.style.display = '';
+      rulesContent.innerHTML = matchedRules.map(r => '<div class="rule-item">' + r + '</div>').join('');
+    } else {
+      rulesPanel.style.display = 'none';
+    }
+
     drawChart(data);
   }
 
+  // ====== DRAW CHART ======
   function drawChart(data) {
     var chartDom = document.getElementById('chartDiv');
     if (!chartDom) return;
@@ -354,40 +663,60 @@
       grid: {left: 48, right: 16, top: 20, bottom: 30},
       xAxis: {type: 'category', data: dates, axisLabel: {color: '#6b7280', fontSize: 10, fontFamily: 'JetBrains Mono,monospace'}, axisLine: {lineStyle: {color: 'rgba(100,116,139,.12)'}}, splitLine: {show: false}},
       yAxis: {type: 'value', axisLabel: {color: '#6b7280', fontSize: 10, formatter: '{value}%', fontFamily: 'JetBrains Mono,monospace'}, axisLine: {show: false}, splitLine: {lineStyle: {color: 'rgba(100,116,139,.08)'}}, splitNumber: 4},
-      tooltip: {trigger: 'axis', backgroundColor: '#111827', borderColor: 'rgba(100,116,139,.12)', textStyle: {color: '#e0e6ed', fontSize: 12, fontFamily: 'Inter,-apple-system,sans-serif'}, formatter: function(params) { var s = params[0].axisValue + '<br/>'; params.forEach(function(p){s += '<span style="color:'+p.color+'">●</span> '+p.seriesName+': '+p.value+'%<br/>';}); return s; }},
+      tooltip: {trigger: 'axis', backgroundColor: '#111827', borderColor: 'rgba(100,116,139,.12)', textStyle: {color: '#e0e6ed', fontSize: 12, fontFamily: 'Inter,-apple-system,sans-serif'}, formatter: function(params) { var s = params[0].axisValue + '<br/>'; params.forEach(function(p){s += '<span style="color:'+p.color+'">\u25cf</span> '+p.seriesName+': '+p.value+'%<br/>';}); return s; }},
       series: [
-        {name: '持有', type: 'line', data: holdPct, smooth: true, symbol: 'none', lineStyle: {color: '#5a6a7e', width: 2}, areaStyle: {color: {type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{offset: 0, color: 'rgba(90,106,126,0.15)'}, {offset: 1, color: 'rgba(90,106,126,0)'}]}}},
-        {name: '策略', type: 'line', data: stratPct, smooth: true, symbol: 'none', lineStyle: {color: '#00d4aa', width: 2.5}, areaStyle: {color: {type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{offset: 0, color: 'rgba(0,212,170,0.2)'}, {offset: 1, color: 'rgba(0,212,170,0)'}]}}}
+        {name: '\u6301\u6709', type: 'line', data: holdPct, smooth: true, symbol: 'none', lineStyle: {color: '#5a6a7e', width: 2}, areaStyle: {color: {type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{offset: 0, color: 'rgba(90,106,126,0.15)'}, {offset: 1, color: 'rgba(90,106,126,0)'}]}}},
+        {name: '\u7b56\u7565', type: 'line', data: stratPct, smooth: true, symbol: 'none', lineStyle: {color: '#00d4aa', width: 2.5}, areaStyle: {color: {type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{offset: 0, color: 'rgba(0,212,170,0.2)'}, {offset: 1, color: 'rgba(0,212,170,0)'}]}}}
       ]
     };
     myChart.setOption(option);
     window.addEventListener('resize', function(){myChart.resize()});
   }
 
-  function submitContact() {
-    const val = document.getElementById('contactInput').value.trim();
-    if (!val) return;
-    alert('感谢！报告将发送至：' + val);
-  }
-
+  // ====== COPY WECHAT ======
   function copyWechat() {
-    navigator.clipboard.writeText("XLN31689").then(() => {
-      alert("✅ 微信号已复制: XLN31689");
+    navigator.clipboard.writeText('XLN31689').then(() => {
+      showToast('\u2705 \u5fae\u4fe1\u53f7\u5df2\u590d\u5236: XLN31689');
     }).catch(() => {
-      const input = document.createElement("input");
-      input.value = "XLN31689";
+      const input = document.createElement('input');
+      input.value = 'XLN31689';
       document.body.appendChild(input);
       input.select();
-      document.execCommand("copy");
+      document.execCommand('copy');
       document.body.removeChild(input);
-      alert("✅ 微信号已复制: XLN31689");
+      showToast('\u2705 \u5fae\u4fe1\u53f7\u5df2\u590d\u5236: XLN31689');
     });
   }
 
-  // Enter key support
-  document.getElementById('stockCode').addEventListener('keydown', e => {
-    if (e.key === 'Enter') runAnalysis();
-  });
+  // ====== SUBMIT CONTACT ======
+  async function submitContact() {
+    const btn = document.querySelector('.contact-form button');
+    const val = document.getElementById('contactInput').value.trim();
+    if (!val || val.length !== 11) {
+      showToast('请输入正确的11位手机号');
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = '提交中...';
+    try {
+      const resp = await fetch('/api/leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: val, source: 'zhuli' })
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        showToast('✅ 提交成功，顾问将主动联系您');
+        document.getElementById('contactInput').value = '';
+      } else {
+        showToast('⚠️ ' + (data.error || '提交失败'));
+      }
+    } catch (e) {
+      showToast('⚠️ 网络错误，请稍后重试');
+    }
+    btn.disabled = false;
+    btn.textContent = '提交';
+  }
 </script>
 </body>
 </html>
