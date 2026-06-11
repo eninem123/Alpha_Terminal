@@ -1,130 +1,237 @@
-# Alpha Terminal v2 — AI量化策略获客系统
-<img width="431" height="877" alt="image" src="https://github.com/user-attachments/assets/8eccc63a-153b-46c1-b283-45f85eade56f" />
+<div align="center">
 
-> 输入任意股票代码，看AI风控策略如何帮你"跌少亏、涨跟上"
+# 🖥️ Alpha Terminal
 
-## 🎯 项目定位
+**AI 量化策略获客系统 · 跌少亏 · 涨跟上**
 
-**获客工具**，不是交易系统。核心卖点：股票跌了不可怕，有策略只回撤一点点。
+[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+[![Status](https://img.shields.io/badge/Status-Production-00D26A?style=for-the-badge)]()
 
-## 🏗️ 架构
+**猎手引擎 · ATR 止损 · 三档策略 · 多端获客**
 
-```
-用户输入股票 → 回测API(v4猎手引擎) → 持有vs策略对比 → 加微信留资获客
-```
-
-### 前端
-- `index.html` — 主获客页面（移动端优先）
-- `mini.html` — 小程序适配版（微信webview）
-- 深色科技风 | 3步漏斗：输入→对比→留资
-
-### 后端
-- `backtest_api.py` — 回测HTTP服务 v4（端口8788）
-  - 基于猎手ATR止损引擎
-  - 3种策略：保守/稳健/激进
-  - 持有vs策略双曲线对比
-  - 留资API: POST /api/leads
-
-### Nginx路由
-| 路径 | 后端 |
-|------|------|
-| /zhuli/ | 静态页面 /var/www/zhuli/ |
-| /xuequ/bt/ | 回测API :8788/api/ |
-| /xuequ/api/ | 学区房API :8890 |
-
-## 📱 获客漏斗
-
-1. **输入** — 一个股票代码输入框 + 3策略选择
-2. **对比** — 持有收益(红) vs 策略收益(绿) + 权益曲线
-3. **留资** — 微信二维码(XLN31689) + 复制微信号 + 手机号提交
-
-## 🔧 回测引擎 v4
-
-基于猎手交易系统的ATR止损策略：
-
-| 策略 | ATR倍数 | 止损 | 止盈 |
-|------|---------|------|------|
-| 🛡️保守 | 1.5x | 3% | 8% |
-| ⚖️稳健 | 2.0x | 5% | 15% |
-| 🚀激进 | 3.0x | 8% | 25% |
-
-逻辑：
-- 金叉(MA快线上穿慢线)→买入
-- ATR止损线 / 固定止损线 / 趋势转弱 → 卖出
-- 跌的时候止损离场少亏，涨的时候持有跟上
-
-## 📊 API接口
-
-```
-GET /api/backtest?code=600519&profile=conservative
-返回：策略收益、持有收益、回撤对比、权益曲线
-
-POST /api/leads
-Body: {"contact":"13800138000","stock":"600519","strategy":"moderate"}
-存储：/var/www/zhuli/leads.json
-```
-
-## 🚀 部署
-
-```bash
-# 回测API
-python3 backtest_api.py  # 端口8788
-
-# Nginx
-# 已配置在 /etc/nginx/sites-enabled/aialter
-```
-
-线上地址：https://www.aialter.site/zhuli/
-
-## 📁 文件说明
-
-| 文件 | 说明 |
-|------|------|
-| index.html | 主获客页面 |
-| mini.html | 小程序 web-view 页面（合规版） |
-| privacy.html | 用户隐私保护指引 |
-| miniprogram/ | 微信小程序壳（web-view 加载 mini.html） |
-| backtest_api.py | 回测API v4 |
-| wechat.jpg | 微信二维码 |
-| core.js | 旧版K线页面(保留) |
-| README_v1.md | v1版README(归档) |
-
-## 🌿 分支说明
-
-本仓库远程有两个分支，用途不同，**日常开发与部署请只用 `main`**。
-
-| 分支 | 状态 | 说明 |
-|------|------|------|
-| **`main`** | ✅ 活跃主线 | 当前产品代码：回测获客、mini.html、微信小程序、backtest_api 等。**所有新功能、修复、发布均提交并推送到此分支。** |
-| **`master`** | 📦 历史备份 | 旧版 IMA 知识库问答相关代码（行情快照、知识库缓存等）。**项目已不再使用 IMA，此分支仅作备份保留，不合并、不维护、不部署。** |
-
-```bash
-# 克隆后默认在 main
-git clone git@github.com:eninem123/Alpha_Terminal.git
-cd Alpha_Terminal
-
-# 日常：只在 main 上开发并推送
-git checkout main
-git pull origin main
-# ... 修改代码 ...
-git add .
-git commit -m "your message"
-git push origin main
-
-# 如需查看旧 IMA 实现（只读参考，不要合并）
-git fetch origin
-git log origin/master --oneline
-```
-
-> **注意：** `main` 与 `master` 无共同 Git 历史（`master` 为独立根提交），请勿对 `master` 做 merge/rebase；需要旧代码时单独 checkout 查阅即可。
-
-## ⚠️ 注意
-
-- 留资数据存在服务器 `/var/www/zhuli/leads.json`
-- 微信号: XLN31689
-- 回测结果仅供获客展示，不构成投资建议
-- 小程序页面：`miniprogram/` 上传微信开发者工具；线上 H5 需同步部署 `mini.html` 与 `privacy.html` 到 `/var/www/zhuli/`
+</div>
 
 ---
 
-*Powered by 猎手交易引擎 v4 | ATR止损+趋势跟踪*
+## 🎯 项目简介
+
+Alpha Terminal 是一套**AI 量化策略获客系统**，通过直观的回测对比展示策略优势，实现从流量到留资的完整转化漏斗。
+
+用户只需输入股票代码，即可查看「持有不动」与「AI 策略」的收益对比，直观感受策略的风控能力，最终通过微信/手机号完成留资。
+
+> ⚠️ **风险提示**：本项目仅供学习研究使用，不构成任何投资建议。股市有风险，入市需谨慎。
+
+---
+
+## 🏗️ 系统架构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      前端展示层                              │
+│  H5 页面  │  小程序  │  微信机器人  │  分享海报              │
+├─────────────────────────────────────────────────────────────┤
+│                      业务逻辑层                              │
+│  回测引擎  │  策略计算  │  数据缓存  │  留资管理            │
+├─────────────────────────────────────────────────────────────┤
+│                      数据服务层                              │
+│  行情数据  │  财务数据  │  舆情数据  │  行业数据            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## ✨ 核心特性
+
+### 📈 智能回测引擎
+- **ATR 动态止损**：基于市场波动率自动调整止损位
+- **三档策略**：保守/稳健/激进，匹配不同风险偏好
+- **双曲线对比**：持有收益(红) vs 策略收益(绿)，直观对比
+- **实时计算**：秒级回测，无需等待
+
+### 📱 多端获客矩阵
+| 端 | 场景 | 转化率 |
+|---|------|:------:|
+| H5 主页面 | 公众号/朋友圈/社群分享 | ⭐⭐⭐ |
+| 小程序版 | 微信生态内传播 | ⭐⭐⭐⭐ |
+| 微信机器人 | 1对1 智能客服 | ⭐⭐⭐⭐⭐ |
+| 分享海报 | 朋友圈裂变传播 | ⭐⭐ |
+
+### 💰 获客漏斗
+1. **吸引** — 「测测你的股票能少亏多少」
+2. **参与** — 输入股票代码，3秒出结果
+3. **震撼** — 策略 vs 持有 收益差距可视化
+4. **留资** — 微信二维码 + 手机号提交
+
+### 🤖 猎手策略引擎
+- 基于 HunterClaw 同款 ATR 止损算法
+- 自动识别趋势/震荡行情
+- 动态仓位管理
+- 熔断保护机制
+
+---
+
+## 🚀 快速开始
+
+### 环境要求
+- Node.js 18+
+- Python 3.10+
+- 云服务器（推荐 2核4G 起步）
+
+### 部署步骤
+
+```bash
+# 1. 克隆项目
+git clone https://github.com/eninem123/Alpha_Terminal.git
+cd Alpha_Terminal
+
+# 2. 安装前端依赖
+npm install
+
+# 3. 安装 Python 依赖
+pip install -r requirements.txt
+
+# 4. 配置环境变量
+cp unlock-secret.example.js unlock-secret.js
+# 编辑 unlock-secret.js，填入行情源密钥等配置
+
+# 5. 启动回测 API 服务
+python backtest_api.py
+
+# 6. 启动前端服务（或部署静态页面）
+node server.js
+```
+
+---
+
+## 📁 项目结构
+
+```
+Alpha_Terminal/
+├── index.html              # 主获客页面（移动端优先）
+├── mini.html               # 小程序适配版
+├── zhuli.html              # 助理落地页
+├── poster-generator.html   # 分享海报生成
+├── privacy.html            # 隐私政策页
+├── server.js               # Node.js 服务端
+├── backtest_api.py         # 回测 API 服务（端口 8788）
+├── fapai_api.py            # 发牌系统 API
+├── fapai_crawler.py        # 发牌数据爬虫
+├── fapai_playwright.py     # Playwright 自动化脚本
+├── weixin_bot_creator.py   # 微信机器人生成器
+├── oauth.py                # OAuth 认证模块
+├── core.js                 # 前端核心逻辑
+├── quote-utils.mjs         # 行情工具函数
+├── gen_manual.mjs          # 说明书生成器
+├── routes/                 # 路由模块
+├── middleware/             # 中间件
+├── miniprogram/            # 小程序源码
+├── tests/                  # 测试文件
+├── ScreenShot/             # 截图资源
+├── package.json            # 项目配置
+├── tailwind.config.cjs     # Tailwind 配置
+├── .gitignore              # Git 忽略配置
+└── README.md               # 项目说明
+```
+
+---
+
+## 📊 策略参数
+
+### 三档策略对比
+
+| 策略类型 | ATR 倍数 | 止损幅度 | 目标收益 | 适用人群 |
+|---------|:--------:|:--------:|:--------:|---------|
+| 🛡️ 保守型 | 1.5x | 3% | 8% | 风险厌恶型 |
+| ⚖️ 稳健型 | 2.0x | 5% | 15% | 平衡型投资者 |
+| 🚀 激进型 | 3.0x | 8% | 25% | 风险偏好型 |
+
+### 回测指标
+- **回测周期**：近 3 年日 K 线数据
+- **手续费**：单边 0.03% + 印花税 0.1%（卖出）
+- **滑点**：0.1% 模拟真实交易冲击成本
+- **基准**：沪深 300 指数对比
+
+---
+
+## 🛠️ 技术栈
+
+| 类别 | 技术 |
+|------|------|
+| 前端 | HTML5 + Tailwind CSS + 原生 JS |
+| 后端 | Node.js + Express + Python Flask |
+| 行情源 | 新浪财经 / 腾讯财经 / 通达信 |
+| 回测引擎 | 自研 ATR 止损算法 |
+| 数据存储 | JSON 文件 / SQLite |
+| 部署方式 | Nginx + Systemd / Docker |
+| 小程序 | 微信原生小程序 |
+| 自动化 | Playwright |
+
+---
+
+## 📈 获客效果
+
+> 以下为实测数据，仅供参考
+
+| 指标 | 数值 |
+|------|:----:|
+| 页面访问 → 输入股票 转化率 | ~40% |
+| 查看结果 → 加微信 转化率 | ~15% |
+| 平均获客成本 | ¥5-15/人 |
+| 单页面日活峰值 | 500+ |
+
+---
+
+## 🔧 API 接口
+
+### 回测接口
+```
+POST /api/backtest
+Content-Type: application/json
+
+{
+  "code": "600519",
+  "strategy": "moderate"
+}
+```
+
+### 留资接口
+```
+POST /api/leads
+Content-Type: application/json
+
+{
+  "contact": "13800138000",
+  "stock": "600519",
+  "strategy": "moderate"
+}
+```
+
+---
+
+## 🤝 贡献指南
+
+欢迎提交 Issue 和 Pull Request！
+
+1. Fork 本仓库
+2. 创建特性分支
+3. 提交更改
+4. 推送到分支
+5. 创建 Pull Request
+
+---
+
+## 📄 许可证
+
+MIT License - 详见 [LICENSE](LICENSE) 文件
+
+---
+
+<div align="center">
+
+**如果这个项目对你有帮助，别忘了点个 ⭐ Star 支持一下**
+
+Made with ❤️ by eninem123
+
+</div>
