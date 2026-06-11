@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>AI量化策略工具 — 回撤控制实测</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    :root{
+      --bg:#0a0e17;--panel:#111827;--card:#0f1729;--card-alt:#151f32;
+      --accent:#00d4aa;--red:#ef4444;--blue:#3b82f6;--accent2:#38bdf8;
+      --text:#e0e6ed;--muted:#6b7280;
+      --line:rgba(100,116,139,.12);--line-hover:rgba(0,212,170,.25);
+      --glow:rgba(0,212,170,.15);
+      --font:'Inter',-apple-system,'PingFang SC','Noto Sans SC','Microsoft YaHei',sans-serif;
+      --mono:'JetBrains Mono','SF Mono',monospace;
+      --radius:12px;--radius-lg:16px;
+    }
+    html,body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;-webkit-font-smoothing:antialiased}
+    .container{max-width:480px;margin:0 auto;padding:0 20px}
+
+    /* === HEADER === */
+    .header{padding:20px 0;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
+    .logo{display:flex;align-items:center;gap:10px}
+    .logo-icon{width:32px;height:32px;background:linear-gradient(135deg,var(--accent),#00a388);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px}
+    .logo-text{font-size:16px;font-weight:700;color:#fff}
+    .header-badge{font-size:11px;color:var(--accent);background:rgba(0,212,170,.1);padding:4px 10px;border-radius:20px;font-weight:600}
+
+    /* === HERO === */
+    .hero{padding:40px 0 28px;text-align:center}
+    .hero h1{font-size:24px;font-weight:800;line-height:1.4;color:#fff}
+    .hero h1 .accent{color:var(--accent)}
+    .hero p{margin-top:12px;font-size:14px;color:var(--muted);line-height:1.7;max-width:360px;margin-left:auto;margin-right:auto}
+
+    /* === STATS BAR === */
+    .stats-bar{display:flex;gap:8px;margin-bottom:24px}
+    .stat-item{flex:1;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 8px;text-align:center}
+    .stat-item .num{font-size:22px;font-weight:800;font-family:var(--mono);color:var(--accent)}
+    .stat-item .label{font-size:11px;color:var(--muted);margin-top:4px}
+
+    /* === INPUT SECTION === */
+    .input-section{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin-bottom:16px}
+    .input-section label{display:block;font-size:12px;color:var(--muted);margin-bottom:10px;font-weight:600}
+    .input-row{display:flex;gap:10px}
+    .code-input{flex:1;background:rgba(10,14,23,.6);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;color:#fff;font-size:18px;font-weight:600;letter-spacing:2px;text-align:center;outline:none;transition:border-color .2s;font-family:var(--mono)}
+    .code-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
+    .code-input::placeholder{color:rgba(107,114,128,.5);letter-spacing:1px;font-weight:400;font-size:14px}
+
+    /* === PROFILE SELECT === */
+    .profile-group{display:flex;gap:8px;margin:16px 0}
+    .profile-btn{flex:1;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px 6px;text-align:center;cursor:pointer;transition:all .25s}
+    .profile-btn .icon{font-size:20px;display:block;margin-bottom:2px}
+    .profile-btn .name{font-size:13px;font-weight:600;color:var(--text)}
+    .profile-btn .desc{font-size:10px;color:var(--muted);margin-top:2px}
+    .profile-btn:hover{border-color:var(--line-hover);transform:translateY(-1px)}
+    .profile-btn.selected{border-color:var(--accent);background:rgba(0,212,170,.08)}
+    .profile-btn.selected .name{color:var(--accent)}
+
+    .run-btn{width:100%;padding:16px;border:none;border-radius:var(--radius);font-size:16px;font-weight:700;cursor:pointer;transition:all .3s;background:linear-gradient(135deg,var(--accent),#00a388);color:#0a0e17;box-shadow:0 4px 20px rgba(0,212,170,.3)}
+    .run-btn:hover{transform:translateY(-2px);box-shadow:0 6px 28px rgba(0,212,170,.45)}
+    .run-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+
+    .error-msg{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:var(--radius);padding:10px 14px;color:var(--red);font-size:13px;margin-bottom:12px;display:none}
+    .error-msg.show{display:block}
+
+    /* === RESULTS === */
+    .results{display:none;animation:fadeIn .35s ease}
+    .results.show{display:block}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+
+    .compare-banner{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin-bottom:16px;display:flex;align-items:center;gap:16px}
+    .compare-item{flex:1;text-align:center}
+    .compare-item .label{font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+    .compare-item .value{font-size:28px;font-weight:800;font-family:var(--mono)}
+    .compare-item .value.red{color:var(--red)}
+    .compare-item .value.green{color:var(--accent)}
+    .compare-vs{font-size:14px;color:var(--muted);font-weight:700}
+
+    .chart-wrap{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);padding:16px;margin-bottom:16px}
+    .chart-wrap .chart-title{font-size:11px;color:var(--muted);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+    #chartDiv{width:100%;height:220px}
+
+    .metrics-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px}
+    .metric-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;text-align:center}
+    .metric-card .m-label{font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
+    .metric-card .m-value{font-size:20px;font-weight:700;font-family:var(--mono)}
+    .metric-card .m-value.good{color:var(--accent)}
+    .metric-card .m-value.bad{color:var(--red)}
+    .metric-card .m-value.neutral{color:var(--text)}
+
+    /* === INSIGHT SECTION === */
+    .insight-section{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin-bottom:16px}
+    .insight-section h3{font-size:14px;font-weight:700;margin-bottom:12px;color:#fff}
+    .insight-item{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+    .insight-item:last-child{border-bottom:none}
+    .insight-icon{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+    .insight-icon.good{background:rgba(0,212,170,.1)}
+    .insight-icon.warn{background:rgba(234,179,8,.1)}
+    .insight-icon.bad{background:rgba(239,68,68,.1)}
+    .insight-text{font-size:13px;color:var(--muted);line-height:1.5}
+    .insight-text strong{color:var(--text)}
+
+    /* === FOOTER === */
+    .footer{padding:24px 0;text-align:center;border-top:1px solid var(--line);margin-top:24px}
+    .footer p{font-size:12px;color:var(--muted);line-height:1.8}
+    .footer a{color:var(--accent);text-decoration:none}
+    .footer a:hover{text-decoration:underline}
+
+    /* === LOADING === */
+    .loading-overlay{position:fixed;inset:0;background:rgba(10,14,23,.92);z-index:100;display:none;align-items:center;justify-content:center;flex-direction:column;backdrop-filter:blur(8px)}
+    .loading-overlay.show{display:flex}
+    .spinner{width:40px;height:40px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .loading-text{margin-top:16px;color:var(--muted);font-size:14px}
+
+    /* === QUICK CODES === */
+    .quick-codes{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+    .quick-code{background:rgba(100,116,139,.1);border:1px solid var(--line);border-radius:6px;padding:6px 12px;font-size:12px;color:var(--muted);cursor:pointer;font-family:var(--mono);transition:all .2s}
+    .quick-code:hover{border-color:var(--line-hover);color:var(--text);background:rgba(0,212,170,.05)}
+
+    /* === BACK BTN === */
+    .back-btn{width:100%;padding:14px;background:transparent;border:1px solid var(--line);border-radius:var(--radius);color:var(--muted);font-size:14px;font-weight:600;cursor:pointer;margin-bottom:12px;transition:all .25s}
+    .back-btn:hover{border-color:var(--line-hover);color:var(--text)}
+  </style>
+</head>
+<body>
+
+<!-- Loading -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text">策略回测分析中...</div>
+</div>
+
+<div class="container">
+  <!-- Header -->
+  <div class="header">
+    <div class="logo">
+      <div class="logo-icon">📊</div>
+      <span class="logo-text">AI量化策略</span>
+    </div>
+    <div class="header-badge">实测工具</div>
+  </div>
+
+  <!-- Hero -->
+  <div class="hero">
+    <h1>你的持仓<span class="accent">回撤控制</span><br>做得怎么样？</h1>
+    <p>输入任意代码，3秒对比 AI策略 vs 直线持有 的真实表现</p>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-bar">
+    <div class="stat-item">
+      <div class="num">78%</div>
+      <div class="label">策略胜率</div>
+    </div>
+    <div class="stat-item">
+      <div class="num">-5.2%</div>
+      <div class="label">平均回撤</div>
+    </div>
+    <div class="stat-item">
+      <div class="num">1.8</div>
+      <div class="label">夏普比率</div>
+    </div>
+  </div>
+
+  <!-- Input -->
+  <div class="input-section" id="inputSection">
+    <label>输入标的代码开始测试</label>
+    <div class="input-row">
+      <input type="text" class="code-input" id="stockCode" placeholder="600519" maxlength="6" inputmode="numeric" autocomplete="off" />
+    </div>
+    <div class="quick-codes">
+      <span class="quick-code" onclick="setCode('600519')">600519</span>
+      <span class="quick-code" onclick="setCode('000858')">000858</span>
+      <span class="quick-code" onclick="setCode('601318')">601318</span>
+      <span class="quick-code" onclick="setCode('300750')">300750</span>
+      <span class="quick-code" onclick="setCode('600036')">600036</span>
+    </div>
+
+    <div class="profile-group">
+      <div class="profile-btn" data-profile="conservative" onclick="selectProfile(this)">
+        <span class="icon">🛡️</span>
+        <span class="name">保守</span>
+        <span class="desc">低回撤</span>
+      </div>
+      <div class="profile-btn selected" data-profile="moderate" onclick="selectProfile(this)">
+        <span class="icon">⚖️</span>
+        <span class="name">稳健</span>
+        <span class="desc">攻守兼备</span>
+      </div>
+      <div class="profile-btn" data-profile="aggressive" onclick="selectProfile(this)">
+        <span class="icon">🚀</span>
+        <span class="name">激进</span>
+        <span class="desc">高收益</span>
+      </div>
+    </div>
+
+    <div class="error-msg" id="errorMsg"></div>
+    <button class="run-btn" id="runBtn" onclick="runAnalysis()">开始回测分析</button>
+  </div>
+
+  <!-- Results -->
+  <div class="results" id="results">
+    <div class="compare-banner">
+      <div class="compare-item">
+        <div class="label">直线持有</div>
+        <div class="value red" id="holdReturn">--</div>
+      </div>
+      <div class="compare-vs">VS</div>
+      <div class="compare-item">
+        <div class="label">AI策略</div>
+        <div class="value green" id="stratReturn">--</div>
+      </div>
+    </div>
+
+    <div class="chart-wrap">
+      <div class="chart-title">收益曲线对比</div>
+      <div id="chartDiv"></div>
+    </div>
+
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="m-label">最大回撤</div>
+        <div class="m-value bad" id="mDD">--</div>
+      </div>
+      <div class="metric-card">
+        <div class="m-label">年化收益</div>
+        <div class="m-value" id="mAnnual">--</div>
+      </div>
+      <div class="metric-card">
+        <div class="m-label">夏普比率</div>
+        <div class="m-value" id="mSharpe">--</div>
+      </div>
+      <div class="metric-card">
+        <div class="m-label">胜率</div>
+        <div class="m-value" id="mWinRate">--</div>
+      </div>
+    </div>
+
+    <!-- AI Insight -->
+    <div class="insight-section" id="insightSection">
+      <h3>📋 策略分析摘要</h3>
+      <div id="insightContent"></div>
+    </div>
+
+    <button class="back-btn" onclick="goBack()">← 换个标的再试</button>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <p>AI量化策略工具 · 仅供参考，不构成投资建议<br>
+    数据基于历史回测，过往业绩不代表未来表现</p>
+  </div>
+</div>
+
+<script>
+  let selectedProfile = 'moderate';
+  let lastResult = null;
+
+  function setCode(code) {
+    document.getElementById('stockCode').value = code;
+  }
+
+  function selectProfile(el) {
+    document.querySelectorAll('.profile-btn').forEach(b => b.classList.remove('selected'));
+    el.classList.add('selected');
+    selectedProfile = el.dataset.profile;
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('errorMsg');
+    el.textContent = msg;
+    el.classList.add('show');
+  }
+
+  function hideError() {
+    document.getElementById('errorMsg').classList.remove('show');
+  }
+
+  function goBack() {
+    document.getElementById('results').classList.remove('show');
+    document.getElementById('inputSection').style.display = 'block';
+    hideError();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function runAnalysis() {
+    hideError();
+    const code = document.getElementById('stockCode').value.trim();
+    if (!code || !/^\d{6}$/.test(code)) {
+      showError('请输入正确的6位代码');
+      return;
+    }
+
+    const btn = document.getElementById('runBtn');
+    btn.disabled = true;
+    document.getElementById('loadingOverlay').classList.add('show');
+
+    try {
+      const url = `/xuequ/bt/backtest?code=${code}&strategy=ma_cross&profile=${selectedProfile}`;
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error('接口返回错误');
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      lastResult = data;
+      renderResults(data);
+      renderInsight(data);
+      document.getElementById('inputSection').style.display = 'none';
+      document.getElementById('results').classList.add('show');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (e) {
+      showError('分析失败：' + e.message);
+    } finally {
+      btn.disabled = false;
+      document.getElementById('loadingOverlay').classList.remove('show');
+    }
+  }
+
+  function renderResults(data) {
+    const m = data.metrics;
+    const stratRet = m.total_return;
+    const holdRet = m.hold_return || 0;
+    document.getElementById('holdReturn').textContent = (holdRet >= 0 ? '+' : '') + holdRet.toFixed(1) + '%';
+    document.getElementById('stratReturn').textContent = (stratRet >= 0 ? '+' : '') + stratRet.toFixed(1) + '%';
+    document.getElementById('holdReturn').className = 'value ' + (holdRet < 0 ? 'red' : 'green');
+    document.getElementById('stratReturn').className = 'value ' + (stratRet < 0 ? 'red' : 'green');
+    document.getElementById('mDD').textContent = m.max_drawdown.toFixed(1) + '%';
+    document.getElementById('mAnnual').textContent = (m.annual_return >= 0 ? '+' : '') + m.annual_return.toFixed(1) + '%';
+    document.getElementById('mAnnual').className = 'm-value ' + (m.annual_return >= 0 ? 'good' : 'bad');
+    document.getElementById('mSharpe').textContent = m.sharpe_ratio.toFixed(2);
+    document.getElementById('mWinRate').textContent = m.win_rate.toFixed(0) + '%';
+    drawChart(data);
+  }
+
+  function renderInsight(data) {
+    const m = data.metrics;
+    const stratRet = m.total_return;
+    const holdRet = m.hold_return || 0;
+    const diff = stratRet - holdRet;
+    const dd = m.max_drawdown;
+    const sharpe = m.sharpe_ratio;
+    const win = m.win_rate;
+    
+    let html = '';
+    
+    // 核心对比
+    if (diff > 0) {
+      html += `<div class="insight-item">
+        <div class="insight-icon good">✓</div>
+        <div class="insight-text">策略跑赢持有 <strong>${diff.toFixed(1)}个百分点</strong>，回撤控制有效</div>
+      </div>`;
+    } else {
+      html += `<div class="insight-item">
+        <div class="insight-icon warn">!</div>
+        <div class="insight-text">策略未跑赢持有，该品种近期适合 <strong>趋势跟踪</strong> 而非波段</div>
+      </div>`;
+    }
+    
+    // 回撤评估
+    if (dd > -10) {
+      html += `<div class="insight-item">
+        <div class="insight-icon good">✓</div>
+        <div class="insight-text">最大回撤 <strong>${dd.toFixed(1)}%</strong>，风控表现优秀</div>
+      </div>`;
+    } else if (dd > -20) {
+      html += `<div class="insight-item">
+        <div class="insight-icon warn">!</div>
+        <div class="insight-text">最大回撤 <strong>${dd.toFixed(1)}%</strong>，中等风险，建议配合止损</div>
+      </div>`;
+    } else {
+      html += `<div class="insight-item">
+        <div class="insight-icon bad">✗</div>
+        <div class="insight-text">最大回撤 <strong>${dd.toFixed(1)}%</strong>，风险偏高，需收紧止损参数</div>
+      </div>`;
+    }
+    
+    // 夏普评估
+    if (sharpe > 1.5) {
+      html += `<div class="insight-item">
+        <div class="insight-icon good">✓</div>
+        <div class="insight-text">夏普比率 <strong>${sharpe.toFixed(2)}</strong>，风险收益比优秀</div>
+      </div>`;
+    } else if (sharpe > 0.8) {
+      html += `<div class="insight-item">
+        <div class="insight-icon warn">!</div>
+        <div class="insight-text">夏普比率 <strong>${sharpe.toFixed(2)}</strong>，收益质量一般</div>
+      </div>`;
+    }
+    
+    // 胜率
+    if (win >= 60) {
+      html += `<div class="insight-item">
+        <div class="insight-icon good">✓</div>
+        <div class="insight-text">胜率 <strong>${win.toFixed(0)}%</strong>，信号可靠性高</div>
+      </div>`;
+    }
+    
+    document.getElementById('insightContent').innerHTML = html;
+  }
+
+  function drawChart(data) {
+    var chartDom = document.getElementById('chartDiv');
+    if (!chartDom) return;
+    var myChart = echarts.init(chartDom, 'dark');
+    var equity = data.equity_curve;
+    if (!equity || equity.length < 2) return;
+
+    var dates = equity.map(function(p){return p.date.slice(5)});
+    var holdPct = equity.map(function(p){return p.hold_pct});
+    var stratPct = equity.map(function(p){return p.strat_pct});
+
+    var option = {
+      backgroundColor: 'transparent',
+      grid: {left: 48, right: 16, top: 20, bottom: 30},
+      xAxis: {
+        type: 'category', data: dates,
+        axisLabel: {color: '#6b7280', fontSize: 10, fontFamily: 'JetBrains Mono,monospace'},
+        axisLine: {lineStyle: {color: 'rgba(100,116,139,.12)'}},
+        splitLine: {show: false}
+      },
+      yAxis: {
+        type: 'value',
+        axisLabel: {color: '#6b7280', fontSize: 10, formatter: '{value}%', fontFamily: 'JetBrains Mono,monospace'},
+        axisLine: {show: false},
+        splitLine: {lineStyle: {color: 'rgba(100,116,139,.08)'}},
+        splitNumber: 4
+      },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: '#111827',
+        borderColor: 'rgba(100,116,139,.12)',
+        textStyle: {color: '#e0e6ed', fontSize: 12},
+        formatter: function(params) {
+          var s = params[0].axisValue + '<br/>';
+          params.forEach(function(p){
+            s += '<span style="color:'+p.color+'">●</span> '+p.seriesName+': '+p.value+'%<br/>';
+          });
+          return s;
+        }
+      },
+      series: [
+        {
+          name: '持有', type: 'line', data: holdPct, smooth: true, symbol: 'none',
+          lineStyle: {color: '#5a6a7e', width: 2},
+          areaStyle: {color: {type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{offset: 0, color: 'rgba(90,106,126,0.15)'}, {offset: 1, color: 'rgba(90,106,126,0)'}]}}
+        },
+        {
+          name: '策略', type: 'line', data: stratPct, smooth: true, symbol: 'none',
+          lineStyle: {color: '#00d4aa', width: 2.5},
+          areaStyle: {color: {type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{offset: 0, color: 'rgba(0,212,170,0.2)'}, {offset: 1, color: 'rgba(0,212,170,0)'}]}}
+        }
+      ]
+    };
+    myChart.setOption(option);
+    window.addEventListener('resize', function(){myChart.resize()});
+  }
+</script>
+
+</body>
+</html>
