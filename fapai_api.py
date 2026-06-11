@@ -99,4 +99,4 @@ if __name__ == "__main__":
     port = 8891
     print(f"🏛️ 法拍房API on :{port}")
     os.makedirs(DATA_DIR, exist_ok=True)
-    HTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    HTTPServer(("127.0.0.1", port), Handler).serve_forever()
